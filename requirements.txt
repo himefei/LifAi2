@@ -1,0 +1,9 @@
+beautifulsoup4>=4.12.0 
+requests>=2.31.0
+keyboard>=0.13.5
+pyperclip>=1.8.2
+pynput>=1.7.6
+pywin32>=306; platform_system == "Windows"
+PyQt6>=6.6.1
+PyQt6-Qt6>=6.6.1
+PyQt6-sip>=13.6.0

@@ -1,0 +1,10 @@
+[
+  {
+    "text": "hi",
+    "is_user": true
+  },
+  {
+    "text": "Hello! How are you today? Is there something I can help you with or would you like to chat?",
+    "is_user": false
+  }
+]

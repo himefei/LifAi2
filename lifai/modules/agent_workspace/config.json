@@ -1,0 +1,8 @@
+{
+    "searxng_instance": "https://searx.be",
+    "results_count": 20,
+    "search_engine": "SearXNG",
+    "google_api_key": "",
+    "google_cx": "",
+    "bing_api_key": ""
+}

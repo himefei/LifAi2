@@ -1,0 +1,18 @@
+[
+  {
+    "text": "hi",
+    "is_user": true
+  },
+  {
+    "text": "Hello! How are you today? Is there something I can help you with or would you like to chat?",
+    "is_user": false
+  },
+  {
+    "text": "hahahaha",
+    "is_user": true
+  },
+  {
+    "text": "It seems like you're in a good mood! Would you like to share what's making you laugh, or is it just a random joke? I'm here to chat and help if you need anything!",
+    "is_user": false
+  }
+]
