@@ -78,7 +78,7 @@ class LifAiHub:
             logging.warning(f"Failed to set tk scaling: {e}")
 
         self.root.title("LifAi Control Hub")
-        self.root.geometry("600x500")
+        self.root.geometry("600x650")
         
         # Configure background color
         self.root.configure(bg='#ffffff')
