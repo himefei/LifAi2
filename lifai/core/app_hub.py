@@ -17,6 +17,7 @@ from lifai.core.toggle_switch import ToggleSwitch
 from lifai.modules.prompt_editor.editor import PromptEditorWindow
 from lifai.modules.AI_chat.ai_chat import ChatWindow
 from lifai.modules.agent_workspace.workspace import AgentWorkspaceWindow
+from lifai.modules.advagent.advagent_window import AdvAgentWindow
 
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -247,6 +248,14 @@ class LifAiHub:
         )
         self.agent_workspace_toggle.pack(fill=tk.X, pady=5)
         
+        # Advanced Agent toggle
+        self.adv_agent_toggle = ToggleSwitch(
+            self.modules_frame,
+            "Advanced Agent",
+            self.toggle_adv_agent
+        )
+        self.adv_agent_toggle.pack(fill=tk.X, pady=5)
+        
         # Debug log panel
         self.debug_frame = ttk.LabelFrame(
             self.root,
@@ -375,6 +384,11 @@ class LifAiHub:
             ollama_client=self.ollama_client
         )
 
+        # Initialize Advanced Agent module
+        self.modules['adv_agent'] = AdvAgentWindow(
+            settings=self.settings
+        )
+
         # Register prompt update callbacks
         if hasattr(self.modules['text_improver'], 'update_prompts'):
             self.modules['prompt_editor'].add_update_callback(
@@ -415,6 +429,13 @@ class LifAiHub:
             self.modules['agent_workspace'].show()
         else:
             self.modules['agent_workspace'].hide()
+
+    def toggle_adv_agent(self):
+        """Toggle Advanced Agent window visibility"""
+        if self.adv_agent_toggle.get():
+            self.modules['adv_agent'].show()
+        else:
+            self.modules['adv_agent'].hide()
 
     def run(self):
         # Make sure the hub window stays on top
