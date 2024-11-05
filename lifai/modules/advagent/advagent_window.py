@@ -62,22 +62,35 @@ class AdvAgentWindow(QMainWindow):
         workspace_layout.addWidget(self.workspace_combo)
         left_layout.addLayout(workspace_layout)
         
-        # Add chat display
+        # Create main chat container with splitter
+        chat_container = QSplitter(Qt.Orientation.Vertical)
+        
+        # Add chat display with larger font
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
-        left_layout.addWidget(self.chat_display)
+        font = self.chat_display.font()
+        font.setPointSize(font.pointSize() + 2)
+        self.chat_display.setFont(font)
+        chat_container.addWidget(self.chat_display)
         
-        # Add message input
-        input_layout = QHBoxLayout()
-        self.message_input = QLineEdit()
+        # Add input text box (using QTextEdit instead of QLineEdit for multi-line)
+        self.message_input = QTextEdit()  # Changed to QTextEdit
+        self.message_input.setFont(font)
         self.message_input.setPlaceholderText("Type your message here...")
-        self.message_input.returnPressed.connect(self.send_message)
-        input_layout.addWidget(self.message_input)
+        self.message_input.setMinimumHeight(150)  # Increased minimum height
+        chat_container.addWidget(self.message_input)
         
+        # Add send button below the input
         send_button = QPushButton("Send")
         send_button.clicked.connect(self.send_message)
-        input_layout.addWidget(send_button)
-        left_layout.addLayout(input_layout)
+        
+        # Create layout for the entire chat section
+        chat_layout = QVBoxLayout()
+        chat_layout.addWidget(chat_container)
+        chat_layout.addWidget(send_button)
+        
+        # Add the chat layout to the main left layout
+        left_layout.addLayout(chat_layout)
         
         # Create right panel (Performance Monitoring)
         right_panel = QWidget()
@@ -186,7 +199,7 @@ class AdvAgentWindow(QMainWindow):
 
     def send_message(self):
         """Send a message to the selected workspace"""
-        message = self.message_input.text().strip()
+        message = self.message_input.toPlainText().strip()
         if not message:
             logger.warning("Attempted to send empty message")
             return
