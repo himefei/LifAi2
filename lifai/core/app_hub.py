@@ -60,7 +60,22 @@ class LogHandler(logging.Handler):
 
 class LifAiHub:
     def __init__(self):
+        # Set DPI awareness for tkinter
+        if sys.platform == 'win32':
+            try:
+                from ctypes import windll
+                windll.shcore.SetProcessDpiAwareness(1)
+            except Exception as e:
+                logging.warning(f"Failed to set DPI awareness for tkinter: {e}")
+
         self.root = tk.Tk()
+        
+        # Enable DPI scaling for tkinter
+        try:
+            self.root.tk.call('tk', 'scaling', self.root.winfo_fpixels('1i')/72.0)
+        except Exception as e:
+            logging.warning(f"Failed to set tk scaling: {e}")
+
         self.root.title("LifAi Control Hub")
         self.root.geometry("600x500")
         
