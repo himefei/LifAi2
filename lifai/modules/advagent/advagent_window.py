@@ -20,20 +20,18 @@ class AdvAgentWindow(QMainWindow):
         super().__init__()
         self.settings = settings
         
-        # API Configuration - Update these values
-        self.base_url = "http://localhost:3001"  # Make sure this matches your AnythingLLM server
-        self.api_key = "6R9718K-GJ84M70-K0NH23Z-M0GY9K6"  # Make sure this is the correct API key
+        # API Configuration
+        self.base_url = "http://localhost:3001"
+        self.api_key = "6R9718K-GJ84M70-K0NH23Z-M0GY9K6"
         
-        # Define default headers for all requests
+        # Define default headers with Bearer authentication
         self.headers = {
-            "Authorization": self.api_key,
-            "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Authorization": f"Bearer {self.api_key}",  # Added Bearer prefix
+            "Content-Type": "application/json"
         }
         
         logger.info("Initializing Advanced Agent Window")
         logger.debug(f"Base URL: {self.base_url}")
-        logger.debug("API Key configured")
         logger.debug(f"Headers configured: {self.headers}")
         
         self.setWindowTitle("Advanced Agent Interface")
@@ -153,16 +151,17 @@ class AdvAgentWindow(QMainWindow):
             logger.info("Attempting to load workspaces...")
             self.chat_display.append("Loading workspaces...")
             
-            logger.debug(f"Request Headers: {self.headers}")
             logger.debug(f"Request URL: {self.base_url}/api/v1/workspaces")
+            logger.debug(f"Request Headers: {self.headers}")
             
             response = requests.get(
                 f"{self.base_url}/api/v1/workspaces",
-                headers=self.headers  # Use the class headers
+                headers=self.headers
             )
             
-            logger.debug(f"Response Status Code: {response.status_code}")
+            logger.debug(f"Response Status: {response.status_code}")
             logger.debug(f"Response Headers: {response.headers}")
+            logger.debug(f"Response Body: {response.text}")
             
             if response.status_code == 200:
                 workspaces = response.json().get("workspaces", [])
@@ -175,11 +174,7 @@ class AdvAgentWindow(QMainWindow):
                 self.chat_display.append(f"Loaded {len(workspaces)} workspaces successfully\n")
             else:
                 error_msg = f"Failed to load workspaces. Status code: {response.status_code}"
-                try:
-                    error_detail = response.json()
-                    logger.error(f"{error_msg}. Response: {error_detail}")
-                except:
-                    logger.error(f"{error_msg}. Raw response: {response.text}")
+                logger.error(f"{error_msg}. Response: {response.text}")
                 self.chat_display.append(f"{error_msg}\n")
                 
         except Exception as e:
@@ -212,35 +207,30 @@ class AdvAgentWindow(QMainWindow):
         try:
             start_time = time.time()
             
-            headers = {
-                "Authorization": self.api_key,
-                "Content-Type": "application/json"
-            }
             data = {
                 "message": message,
                 "mode": "chat"
             }
             
-            logger.debug(f"Request Headers: {headers}")
-            logger.debug(f"Request Data: {data}")
             logger.debug(f"Request URL: {self.base_url}/api/v1/workspace/{workspace_slug}/chat")
+            logger.debug(f"Request Headers: {self.headers}")
+            logger.debug(f"Request Data: {data}")
             
             response = requests.post(
                 f"{self.base_url}/api/v1/workspace/{workspace_slug}/chat",
-                headers=headers,
+                headers=self.headers,
                 json=data
             )
             
             end_time = time.time()
             response_time = end_time - start_time
             
-            logger.debug(f"Response Status Code: {response.status_code}")
+            logger.debug(f"Response Status: {response.status_code}")
             logger.debug(f"Response Time: {response_time:.2f}s")
+            logger.debug(f"Response Body: {response.text}")
             
             if response.status_code == 200:
                 result = response.json()
-                logger.debug(f"Response Data: {result}")
-                
                 bot_response = result.get("textResponse", "No response received")
                 self.chat_display.append(f"\nBot: {bot_response}")
                 
@@ -248,7 +238,6 @@ class AdvAgentWindow(QMainWindow):
                     self.chat_display.append("\nSources:")
                     for source in result["sources"]:
                         self.chat_display.append(f"- {source['title']}")
-                        logger.debug(f"Source: {source}")
                 
                 logger.info("Message sent and response received successfully")
                 
@@ -261,12 +250,7 @@ class AdvAgentWindow(QMainWindow):
                 )
             else:
                 error_msg = f"\nError: Failed to get response (Status code: {response.status_code})"
-                logger.error(error_msg)
-                try:
-                    error_detail = response.json()
-                    logger.error(f"Response: {error_detail}")
-                except:
-                    logger.error(f"Raw response: {response.text}")
+                logger.error(f"{error_msg}. Response: {response.text}")
                 self.chat_display.append(error_msg)
                 self.perf_monitor.add_request_metric(
                     response_time=response_time,
