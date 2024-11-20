@@ -11,6 +11,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.append(project_root)
 
 from lifai.utils.ollama_client import OllamaClient
+from lifai.utils.lmstudio_client import LMStudioClient
 from lifai.modules.text_improver.improver import TextImproverWindow
 from lifai.modules.floating_toolbar.toolbar import FloatingToolbarModule
 from lifai.core.toggle_switch import ToggleSwitch
@@ -87,16 +88,18 @@ class LifAiHub:
         self.style.configure('TLabelframe', background='#ffffff')
         self.style.configure('TLabelframe.Label', background='#ffffff')
         
-        # Initialize Ollama client
+        # Initialize clients
         self.ollama_client = OllamaClient()
+        self.lmstudio_client = LMStudioClient()
         
-        # Load last selected model
+        # Load last selected model and backend
         self.config_file = os.path.join(project_root, 'lifai', 'config', 'app_settings.json')
-        last_model = self.load_last_model()
+        last_config = self.load_last_config()
         
         # Shared settings
         self.settings = {
-            'model': tk.StringVar(value=last_model),
+            'model': tk.StringVar(value=last_config.get('last_model', '')),
+            'backend': tk.StringVar(value=last_config.get('backend', 'ollama')),
             'models_list': []
         }
         
@@ -112,37 +115,50 @@ class LifAiHub:
         
         # Bind model selection change
         self.settings['model'].trace_add('write', self.on_model_change)
+        self.settings['backend'].trace_add('write', self.on_backend_change)
 
-    def load_last_model(self) -> str:
-        """Load the last selected model from config file"""
+    def load_last_config(self) -> dict:
+        """Load the last configuration from config file"""
         try:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r') as f:
-                    config = json.load(f)
-                    return config.get('last_model', '')
+                    return json.load(f)
         except Exception as e:
-            logging.error(f"Error loading last model: {e}")
-        return ''
+            logging.error(f"Error loading config: {e}")
+        return {}
 
-    def save_last_model(self):
-        """Save the current model selection to config file"""
+    def save_config(self):
+        """Save the current configuration to config file"""
         try:
-            config = {'last_model': self.settings['model'].get()}
+            config = {
+                'last_model': self.settings['model'].get(),
+                'backend': self.settings['backend'].get()
+            }
             os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
             with open(self.config_file, 'w') as f:
                 json.dump(config, f)
         except Exception as e:
-            logging.error(f"Error saving last model: {e}")
+            logging.error(f"Error saving config: {e}")
 
     def on_model_change(self, *args):
         """Handle model selection change"""
-        self.save_last_model()
+        self.save_config()
+
+    def on_backend_change(self, *args):
+        """Handle backend selection change"""
+        self.refresh_models()
+        self.save_config()
+
+    def get_active_client(self):
+        """Get the currently active client based on backend selection"""
+        return self.lmstudio_client if self.settings['backend'].get() == 'lmstudio' else self.ollama_client
 
     def refresh_models(self):
         """Refresh the list of available models"""
         try:
             current_model = self.settings['model'].get()
-            self.models_list = self.ollama_client.fetch_models()
+            client = self.get_active_client()
+            self.models_list = client.fetch_models()
             self.model_dropdown['values'] = self.models_list
             
             # Try to keep the current selection if it still exists
@@ -167,6 +183,26 @@ class LifAiHub:
         )
         self.settings_frame.pack(fill=tk.X, padx=10, pady=5)
         
+        # Backend selection container
+        backend_container = ttk.Frame(self.settings_frame)
+        backend_container.pack(fill=tk.X, expand=True, pady=(0, 5))
+        
+        # Backend label
+        backend_label = ttk.Label(backend_container, text="Backend:")
+        backend_label.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Backend selection
+        self.backend_dropdown = ttk.Combobox(
+            backend_container,
+            textvariable=self.settings['backend'],
+            values=['ollama', 'lmstudio'],
+            state='readonly'
+        )
+        self.backend_dropdown.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # Bind backend selection change
+        self.settings['backend'].trace_add('write', self.on_backend_change)
+        
         # Model selection container
         model_container = ttk.Frame(self.settings_frame)
         model_container.pack(fill=tk.X, expand=True)
@@ -176,7 +212,7 @@ class LifAiHub:
         model_label.pack(side=tk.LEFT, padx=(0, 5))
         
         # Model selection with longer width
-        self.models_list = self.ollama_client.fetch_models()
+        self.models_list = self.get_active_client().fetch_models()
         self.model_dropdown = ttk.Combobox(
             model_container, 
             textvariable=self.settings['model'],
@@ -364,24 +400,24 @@ class LifAiHub:
         # Initialize other modules
         self.modules['text_improver'] = TextImproverWindow(
             settings=self.settings,
-            ollama_client=self.ollama_client
+            ollama_client=self.get_active_client()
         )
         
         self.modules['floating_toolbar'] = FloatingToolbarModule(
             settings=self.settings,
-            ollama_client=self.ollama_client
+            ollama_client=self.get_active_client()
         )
 
         # Initialize AI Chat module
         self.modules['chat'] = ChatWindow(
             settings=self.settings,
-            ollama_client=self.ollama_client
+            ollama_client=self.get_active_client()
         )
 
         # Initialize Agent Workspace module
         self.modules['agent_workspace'] = AgentWorkspaceWindow(
             settings=self.settings,
-            ollama_client=self.ollama_client
+            ollama_client=self.get_active_client()
         )
 
         # Initialize Advanced Agent module
@@ -445,7 +481,7 @@ class LifAiHub:
     def on_closing(self):
         """Handle application closing"""
         # Save current model selection
-        self.save_last_model()
+        self.save_config()
         
         # Destroy all module windows
         for module in self.modules.values():

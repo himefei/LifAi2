@@ -22,7 +22,7 @@ class AdvAgentWindow(QMainWindow):
         
         # API Configuration
         self.base_url = "http://localhost:3001"
-        self.api_key = "6R9718K-GJ84M70-K0NH23Z-M0GY9K6"
+        self.api_key = "1NRHHMY-M2H4EER-PR0KP2A-6AK87EC"
         
         # Define default headers with Bearer authentication
         self.headers = {
