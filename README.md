@@ -1,4 +1,4 @@
-# 🪄 LifAi2 is an OLLAMA-Powered Python App
+# 🪄 LifAi2 is an Local LLM powered (Ollama and LM Studio) Python App
 
 ### A hub to invoke various AI tools including writing improvements, spell checking, translation, prompt editing, AI chat and more.
 
@@ -15,6 +15,7 @@ Inspired by powerful AI tools like **Claude Dev** and **Cursor**, I've created l
 - 🌐 **Translation**: Bridge language gaps
 - ✏️ **Prompt Editor**: Craft and refine your AI prompts
 - 💬 **AI Chat**: Chat with your local AI assistant
+- 🚀 **RAG**: KG support (API provided by Anything LLM)
 
 ## 🎯 Why This Project?
 
