@@ -2,13 +2,13 @@
 
 ### A hub to invoke various AI tools including writing improvements, spell checking, translation, prompt editing, AI chat and more.
 
-![Hub Screenshot](assets/hub.png)
+![Hub Screenshot](assets/hub2.png)
 
 ## 🚀 Welcome!
 
 Hey there! 👋 I'm not a professional programmer, but with some high school coding experience and a lot of enthusiasm, I'm diving into the world of GitHub to build something awesome with AI.
 
-Inspired by powerful AI tools like **Claude Dev** and **Cursor**, I've created lightweight apps and Chrome extensions. Now, I'm taking on a bigger challenge: a Python app powered by [OLLAMA](https://ollama.ai/) for:
+Inspired by powerful AI tools like **Claude Dev** and **Cursor**, I've created lightweight apps and Chrome extensions. Now, I'm taking on a bigger challenge: a Python app powered by [OLLAMA](https://ollama.ai/) and [LM Studio](https://https://lmstudio.ai/) for:
 
 - 📝 **Spell Checking**: Spot and fix typos
 - ✍️ **Writing Improvement**: Enhance clarity and style
