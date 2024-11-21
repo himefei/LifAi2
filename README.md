@@ -15,7 +15,7 @@ Inspired by powerful AI tools like **Claude Dev** and **Cursor**, I've created l
 - 🌐 **Translation**: Bridge language gaps
 - ✏️ **Prompt Editor**: Craft and refine your AI prompts
 - 💬 **AI Chat**: Chat with your local AI assistant
-- 🚀 **RAG**: KG support (API provided by Anything LLM)
+- 🚀 **RAG**: KG support (API provided by [Anything LLM](https://anythingllm.com/))
 
 ## 🎯 Why This Project?
 
@@ -46,6 +46,8 @@ This is a personal learning journey, and I'm still getting the hang of GitHub. B
 - **AI Coding Assistants**: Empowering creators like me
 - **Claude Dev & Cursor**: For their awesome capabilities
 - **OLLAMA**: Running local LLMs
+- **LM Studio**: Running local LLMs
+- **AnythingLLM**: Providing RAG API
 - **Open-Source Community**: For all the support
 
 ---
