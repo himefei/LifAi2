@@ -9,6 +9,7 @@ from typing import Dict
 from lifai.utils.ollama_client import OllamaClient
 from lifai.config.prompts import improvement_options, llm_prompts
 from lifai.utils.logger_utils import get_module_logger
+from markdown import markdown
 
 logger = get_module_logger(__name__)
 
@@ -165,7 +166,6 @@ class TextImproverWindow(QWidget):
         self.repaint()
 
         try:
-            # Simulate progress (since we can't get real-time progress from ollama)
             self.progress_bar.setValue(20)
             
             improvement = self.improvement_dropdown.currentText()
@@ -182,8 +182,9 @@ class TextImproverWindow(QWidget):
             self.progress_bar.setValue(80)
             
             if improved_text:
-                # Preserve formatting by copying HTML format
-                self.output_text.setHtml(improved_text)
+                # Convert markdown to HTML before displaying
+                html_content = markdown(improved_text, extensions=['extra'])
+                self.output_text.setHtml(html_content)
                 self.status_label.setText("Text processed successfully!")
                 self.progress_bar.setValue(100)
             else:
