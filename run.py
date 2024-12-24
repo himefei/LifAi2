@@ -7,7 +7,23 @@ import ctypes
 project_root = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(project_root)
 
-# Set DPI awareness before creating QApplication
+# Set Qt attributes before creating QApplication
+from PyQt6.QtCore import Qt, QCoreApplication
+
+# Set high DPI attributes
+# PyQt6 已经默认启用了高 DPI 缩放
+QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_Use96Dpi)
+
+# Initialize QApplication before importing any QWidgets
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QGuiApplication
+
+# Set DPI scaling policy before creating QApplication
+QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+    Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+)
+
+# Set Windows DPI awareness
 if sys.platform == 'win32':
     try:
         # Enable Per Monitor V2 DPI awareness
@@ -19,22 +35,12 @@ if sys.platform == 'win32':
         except Exception as e:
             print(f"Failed to set DPI awareness: {e}")
 
-# Initialize QApplication before importing any QWidgets
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
-
-# Create QApplication with appropriate DPI scaling
+# Create QApplication
 qt_app = QApplication.instance()
 if not qt_app:
     qt_app = QApplication(sys.argv)
-    # In PyQt6, high DPI scaling is enabled by default
-    # We can adjust the scaling policy if needed
-    QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-    )
 
-from lifai.core.app_hub import LifAiHub
+from lifai.core.app_hub import main
 
 if __name__ == "__main__":
-    app = LifAiHub()
-    app.run() 
+    main() 

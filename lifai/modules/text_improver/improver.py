@@ -10,6 +10,7 @@ from lifai.utils.ollama_client import OllamaClient
 from lifai.config.prompts import improvement_options, llm_prompts
 from lifai.utils.logger_utils import get_module_logger
 from markdown import markdown
+from lifai.utils.knowledge_base import KnowledgeBase
 
 logger = get_module_logger(__name__)
 
@@ -20,7 +21,7 @@ class TextImproverWindow(QWidget):
         self.settings = settings
         self.ollama_client = ollama_client
         self.selected_improvement = None
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
+        self.knowledge_base = KnowledgeBase()  # 初始化知识库
         self.setup_ui()
         self.hide()  # Start hidden
         
@@ -168,9 +169,23 @@ class TextImproverWindow(QWidget):
         try:
             self.progress_bar.setValue(20)
             
+            # 获取相关上下文
+            context = self.knowledge_base.get_context(text)
+            
             improvement = self.improvement_dropdown.currentText()
             prompt = llm_prompts.get(improvement, "Please improve this text:")
-            prompt = prompt.format(text=text)
+            
+            # 在提示中加入上下文信息
+            if context:
+                prompt = f"""Context information:
+{context}
+
+Using the context above to understand any company-specific terms or abbreviations, {prompt}
+
+Text to process:
+{text}"""
+            else:
+                prompt = prompt.format(text=text)
             
             self.progress_bar.setValue(40)
             
@@ -231,5 +246,6 @@ class TextImproverWindow(QWidget):
         return super().isVisible()
 
     def closeEvent(self, event):
-        event.ignore()  # This prevents the window from being closed
-        self.hide()    # Instead, we just hide the window
+        """处理窗口关闭事件"""
+        self.hide()  # 隐藏窗口而不是关闭
+        event.accept()  # 接受关闭事件

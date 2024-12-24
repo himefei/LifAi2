@@ -1,5 +1,7 @@
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                            QLabel, QComboBox, QPushButton, QFrame, QTextEdit, QScrollArea,
+                            QMessageBox)
+from PyQt6.QtCore import Qt, pyqtSignal
 import logging
 import os
 import sys
@@ -14,20 +16,34 @@ from lifai.utils.ollama_client import OllamaClient
 from lifai.utils.lmstudio_client import LMStudioClient
 from lifai.modules.text_improver.improver import TextImproverWindow
 from lifai.modules.floating_toolbar.toolbar import FloatingToolbarModule
-from lifai.core.toggle_switch import ToggleSwitch
 from lifai.modules.prompt_editor.editor import PromptEditorWindow
-from lifai.modules.AI_chat.ai_chat import ChatWindow
-from lifai.modules.agent_workspace.workspace import AgentWorkspaceWindow
-from lifai.modules.advagent.advagent_window import AdvAgentWindow
+from lifai.modules.knowledge_manager.manager import KnowledgeManagerWindow
+# from lifai.modules.AI_chat.ai_chat import ChatWindow
+# from lifai.modules.agent_workspace.workspace import AgentWorkspaceWindow
+# from lifai.modules.advagent.advagent_window import AdvAgentWindow
 
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
-class LogHandler(logging.Handler):
-    def __init__(self, text_widget: scrolledtext.ScrolledText):
-        super().__init__()
-        self.text_widget = text_widget
+class LogWidget(QTextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
         
-        # Create a formatter
+    def append_log(self, msg, level):
+        # 设置不同日志级别的颜色
+        color = {
+            logging.ERROR: '#FF5252',    # 红色
+            logging.WARNING: '#FFA726',   # 橙色
+            logging.INFO: '#4CAF50',      # 绿色
+            logging.DEBUG: '#9E9E9E'      # 灰色
+        }.get(level, '#000000')          # 默认黑色
+        
+        self.append(f'<span style="color: {color}">{msg}</span>')
+
+class LogHandler(logging.Handler):
+    def __init__(self, widget: LogWidget):
+        super().__init__()
+        self.widget = widget
         self.formatter = logging.Formatter(
             '%(asctime)s - %(levelname)s - %(message)s',
             datefmt='%H:%M:%S'
@@ -35,71 +51,57 @@ class LogHandler(logging.Handler):
 
     def emit(self, record):
         msg = self.formatter.format(record)
-        self.text_widget.configure(state='normal')
-        
-        # Add color tags based on log level
-        if record.levelno >= logging.ERROR:
-            tag = 'error'
-            color = '#FF5252'  # Red
-        elif record.levelno >= logging.WARNING:
-            tag = 'warning'
-            color = '#FFA726'  # Orange
-        elif record.levelno >= logging.INFO:
-            tag = 'info'
-            color = '#4CAF50'  # Green
-        else:
-            tag = 'debug'
-            color = '#9E9E9E'  # Gray
-            
-        # Configure tag if it doesn't exist
-        if tag not in self.text_widget.tag_names():
-            self.text_widget.tag_configure(tag, foreground=color)
-        
-        # Insert the message with appropriate tag
-        self.text_widget.insert(tk.END, msg + '\n', tag)
-        self.text_widget.see(tk.END)  # Auto-scroll to bottom
-        self.text_widget.configure(state='disabled')
+        self.widget.append_log(msg, record.levelno)
 
-class LifAiHub:
+class ModuleToggle(QWidget):
+    toggled = pyqtSignal(bool)
+    
+    def __init__(self, title, module_creator=None, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.title = QLabel(title)
+        self.button = QPushButton("Enable")
+        self.button.setCheckable(True)
+        self.button.clicked.connect(self._on_toggle)
+        
+        layout.addWidget(self.title)
+        layout.addStretch()
+        layout.addWidget(self.button)
+        
+        self.module = None
+        self.module_creator = module_creator
+        
+    def _on_toggle(self, checked):
+        self.button.setText("Disable" if checked else "Enable")
+        if checked and self.module_creator:
+            if not self.module:
+                self.module = self.module_creator()
+            self.module.show()
+        elif self.module:
+            self.module.hide()
+        self.toggled.emit(checked)
+        
+    def get(self):
+        return self.button.isChecked()
+
+class LifAiHub(QMainWindow):
     def __init__(self):
-        # Set DPI awareness for tkinter
-        if sys.platform == 'win32':
-            try:
-                from ctypes import windll
-                windll.shcore.SetProcessDpiAwareness(1)
-            except Exception as e:
-                logging.warning(f"Failed to set DPI awareness for tkinter: {e}")
-
-        self.root = tk.Tk()
+        super().__init__()
         
-        # Enable DPI scaling for tkinter
-        try:
-            self.root.tk.call('tk', 'scaling', self.root.winfo_fpixels('1i')/72.0)
-        except Exception as e:
-            logging.warning(f"Failed to set tk scaling: {e}")
-
-        self.root.title("LifAi Control Hub")
-        self.root.geometry("600x650")
-        
-        # Configure background color
-        self.root.configure(bg='#ffffff')
-        self.style = ttk.Style()
-        self.style.configure('TFrame', background='#ffffff')
-        self.style.configure('TLabelframe', background='#ffffff')
-        self.style.configure('TLabelframe.Label', background='#ffffff')
-        
-        # Initialize clients
+        # 初始化客户端
         self.ollama_client = OllamaClient()
         self.lmstudio_client = LMStudioClient()
         
-        # Load last selected model and backend
+        # 加载配置
         self.config_file = os.path.join(project_root, 'lifai', 'config', 'app_settings.json')
         last_config = self.load_last_config()
         
-        # Shared settings
+        # 共享设置
         self.settings = {
-            'model': tk.StringVar(value=last_config.get('last_model', '')),
-            'backend': tk.StringVar(value=last_config.get('backend', 'ollama')),
+            'model': last_config.get('last_model', ''),
+            'backend': last_config.get('backend', 'ollama'),
             'models_list': []
         }
         
@@ -107,297 +109,173 @@ class LifAiHub:
         self.modules = {}
         self.initialize_modules()
         
-        # Log initialization
+        # 设置窗口标题和大小
+        self.setWindowTitle("LifAi Control Hub")
+        self.resize(600, 650)
+        
+        # 日志初始化
         logging.info("LifAi Control Hub initialized")
-        
-        # Bind window close event
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        
-        # Bind model selection change
-        self.settings['model'].trace_add('write', self.on_model_change)
-        self.settings['backend'].trace_add('write', self.on_backend_change)
-
-    def load_last_config(self) -> dict:
-        """Load the last configuration from config file"""
-        try:
-            if os.path.exists(self.config_file):
-                with open(self.config_file, 'r') as f:
-                    return json.load(f)
-        except Exception as e:
-            logging.error(f"Error loading config: {e}")
-        return {}
-
-    def save_config(self):
-        """Save the current configuration to config file"""
-        try:
-            config = {
-                'last_model': self.settings['model'].get(),
-                'backend': self.settings['backend'].get()
-            }
-            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
-            with open(self.config_file, 'w') as f:
-                json.dump(config, f)
-        except Exception as e:
-            logging.error(f"Error saving config: {e}")
-
-    def on_model_change(self, *args):
-        """Handle model selection change"""
-        self.save_config()
-
-    def on_backend_change(self, *args):
-        """Handle backend selection change"""
-        self.refresh_models()
-        self.save_config()
-
-    def get_active_client(self):
-        """Get the currently active client based on backend selection"""
-        return self.lmstudio_client if self.settings['backend'].get() == 'lmstudio' else self.ollama_client
-
-    def refresh_models(self):
-        """Refresh the list of available models"""
-        try:
-            current_model = self.settings['model'].get()
-            client = self.get_active_client()
-            self.models_list = client.fetch_models()
-            self.model_dropdown['values'] = self.models_list
-            
-            # Try to keep the current selection if it still exists
-            if current_model in self.models_list:
-                self.settings['model'].set(current_model)
-            elif self.models_list:
-                self.settings['model'].set(self.models_list[0])
-            else:
-                self.settings['model'].set('')
-                
-            logging.info("Models list refreshed successfully")
-        except Exception as e:
-            logging.error(f"Error refreshing models: {e}")
-            messagebox.showerror("Error", f"Failed to refresh models: {e}")
 
     def setup_ui(self):
-        # Settings panel with padding
-        self.settings_frame = ttk.LabelFrame(
-            self.root, 
-            text="Global Settings",
-            padding=10
-        )
-        self.settings_frame.pack(fill=tk.X, padx=10, pady=5)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
         
-        # Backend selection container
-        backend_container = ttk.Frame(self.settings_frame)
-        backend_container.pack(fill=tk.X, expand=True, pady=(0, 5))
+        # === 全局设置面板 ===
+        settings_group = QFrame()
+        settings_group.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        settings_layout = QVBoxLayout(settings_group)
+        settings_layout.setSpacing(10)
         
-        # Backend label
-        backend_label = ttk.Label(backend_container, text="Backend:")
-        backend_label.pack(side=tk.LEFT, padx=(0, 5))
+        # Backend 选择
+        backend_layout = QHBoxLayout()
+        backend_layout.addWidget(QLabel("Backend:"))
+        self.backend_combo = QComboBox()
+        self.backend_combo.addItems(['ollama', 'lmstudio'])
+        self.backend_combo.setCurrentText(self.settings['backend'])
+        self.backend_combo.currentTextChanged.connect(self.on_backend_change)
+        backend_layout.addWidget(self.backend_combo)
+        settings_layout.addLayout(backend_layout)
         
-        # Backend selection
-        self.backend_dropdown = ttk.Combobox(
-            backend_container,
-            textvariable=self.settings['backend'],
-            values=['ollama', 'lmstudio'],
-            state='readonly'
-        )
-        self.backend_dropdown.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        # Model 选择
+        model_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("Model:"))
+        self.model_combo = QComboBox()
+        self.model_combo.currentTextChanged.connect(self.on_model_change)
+        self.refresh_models()
+        model_layout.addWidget(self.model_combo)
         
-        # Bind backend selection change
-        self.settings['backend'].trace_add('write', self.on_backend_change)
+        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn.clicked.connect(self.refresh_models)
+        model_layout.addWidget(refresh_btn)
+        settings_layout.addLayout(model_layout)
         
-        # Model selection container
-        model_container = ttk.Frame(self.settings_frame)
-        model_container.pack(fill=tk.X, expand=True)
+        main_layout.addWidget(settings_group)
         
-        # Model label
-        model_label = ttk.Label(model_container, text="Model:")
-        model_label.pack(side=tk.LEFT, padx=(0, 5))
+        # === 模块控制面板 ===
+        modules_group = QFrame()
+        modules_group.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        modules_layout = QVBoxLayout(modules_group)
         
-        # Model selection with longer width
-        self.models_list = self.get_active_client().fetch_models()
-        self.model_dropdown = ttk.Combobox(
-            model_container, 
-            textvariable=self.settings['model'],
-            values=self.models_list,
-            state='readonly'
-        )
-        self.model_dropdown.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        
-        # Refresh button
-        refresh_btn = ttk.Button(
-            model_container,
-            text="🔄 Refresh",
-            command=self.refresh_models,
-            width=10
-        )
-        refresh_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Set initial model selection
-        if self.settings['model'].get() in self.models_list:
-            self.model_dropdown.set(self.settings['model'].get())
-        elif self.models_list:
-            self.model_dropdown.current(0)
-        
-        # Module controls
-        self.modules_frame = ttk.LabelFrame(
-            self.root, 
-            text="Module Controls",
-            padding=10
-        )
-        self.modules_frame.pack(fill=tk.X, padx=10, pady=5)
-
         # Text Improver toggle
-        self.text_improver_toggle = ToggleSwitch(
-            self.modules_frame,
-            "Text Improver Window",
-            self.toggle_text_improver
-        )
-        self.text_improver_toggle.pack(fill=tk.X, pady=5)
-
+        self.text_improver_toggle = ModuleToggle("Text Improver Window")
+        self.text_improver_toggle.toggled.connect(self.toggle_text_improver)
+        modules_layout.addWidget(self.text_improver_toggle)
+        
         # Floating Toolbar toggle
-        self.toolbar_toggle = ToggleSwitch(
-            self.modules_frame,
-            "Floating Toolbar",
-            self.toggle_floating_toolbar
-        )
-        self.toolbar_toggle.pack(fill=tk.X, pady=5)
-
+        self.toolbar_toggle = ModuleToggle("Floating Toolbar")
+        self.toolbar_toggle.toggled.connect(self.toggle_floating_toolbar)
+        modules_layout.addWidget(self.toolbar_toggle)
+        
         # Prompt Editor toggle
-        self.prompt_editor_toggle = ToggleSwitch(
-            self.modules_frame,
-            "Prompt Editor",
-            self.toggle_prompt_editor
-        )
-        self.prompt_editor_toggle.pack(fill=tk.X, pady=5)
-
-        # AI Chat toggle
-        self.chat_toggle = ToggleSwitch(
-            self.modules_frame,
-            "AI Chat",
-            self.toggle_chat
-        )
-        self.chat_toggle.pack(fill=tk.X, pady=5)
+        self.prompt_editor_toggle = ModuleToggle("Prompt Editor")
+        self.prompt_editor_toggle.toggled.connect(self.toggle_prompt_editor)
+        modules_layout.addWidget(self.prompt_editor_toggle)
         
-        # Agent Workspace toggle
-        self.agent_workspace_toggle = ToggleSwitch(
-            self.modules_frame,
-            "Agent Workspace",
-            self.toggle_agent_workspace
-        )
-        self.agent_workspace_toggle.pack(fill=tk.X, pady=5)
+        # Knowledge Manager toggle
+        self.knowledge_manager_toggle = ModuleToggle("Knowledge Manager")
+        self.knowledge_manager_toggle.toggled.connect(self.toggle_knowledge_manager)
+        modules_layout.addWidget(self.knowledge_manager_toggle)
         
-        # Advanced Agent toggle
-        self.adv_agent_toggle = ToggleSwitch(
-            self.modules_frame,
-            "Advanced Agent",
-            self.toggle_adv_agent
-        )
-        self.adv_agent_toggle.pack(fill=tk.X, pady=5)
+        main_layout.addWidget(modules_group)
         
-        # Debug log panel
-        self.debug_frame = ttk.LabelFrame(
-            self.root,
-            text="Debug Logs",
-            padding=10
-        )
-        self.debug_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # === 日志面板 ===
+        log_group = QFrame()
+        log_group.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        log_layout = QVBoxLayout(log_group)
         
-        # Add scrolled text widget for logs
-        self.log_widget = scrolledtext.ScrolledText(
-            self.debug_frame,
-            height=10,
-            wrap=tk.WORD
-        )
-        self.log_widget.pack(fill=tk.BOTH, expand=True)
-        self.log_widget.configure(state='disabled')
+        # 日志显示区域
+        self.log_widget = LogWidget()
+        log_layout.addWidget(self.log_widget)
         
-        # Configure logging to use our widget
+        # 日志控制
+        log_controls = QHBoxLayout()
+        
+        # 日志级别选择
+        log_controls.addWidget(QLabel("Log Level:"))
+        self.log_level_combo = QComboBox()
+        self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
+        self.log_level_combo.setCurrentText("INFO")
+        self.log_level_combo.currentTextChanged.connect(self.change_log_level)
+        log_controls.addWidget(self.log_level_combo)
+        
+        # 清除和保存按钮
+        clear_btn = QPushButton("Clear Logs")
+        clear_btn.clicked.connect(self.clear_logs)
+        save_btn = QPushButton("Save Logs")
+        save_btn.clicked.connect(self.save_logs)
+        
+        log_controls.addStretch()
+        log_controls.addWidget(clear_btn)
+        log_controls.addWidget(save_btn)
+        
+        log_layout.addLayout(log_controls)
+        main_layout.addWidget(log_group)
+        
+        # 配置日志处理器
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)
         
-        # Remove existing handlers
+        # 移除现有的处理器
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
         
-        # Add our custom handler
+        # 添加自定义处理器
         log_handler = LogHandler(self.log_widget)
         root_logger.addHandler(log_handler)
         
-        # Create log controls at the bottom
-        self.create_log_controls()
-        
-        # Add initial test logs
+        # 添加测试日志
         logging.debug("Debug message test")
         logging.info("Info message test")
         logging.warning("Warning message test")
         logging.error("Error message test")
 
-    def create_log_controls(self):
-        control_frame = ttk.Frame(self.debug_frame)
-        control_frame.pack(fill=tk.X, pady=(5, 0))
-        
-        # Log level selector
-        ttk.Label(control_frame, text="Log Level:").pack(side=tk.LEFT, padx=(0, 5))
-        self.log_level = tk.StringVar(value="INFO")
-        level_combo = ttk.Combobox(
-            control_frame,
-            textvariable=self.log_level,
-            values=["DEBUG", "INFO", "WARNING", "ERROR"],
-            state='readonly',
-            width=10
-        )
-        level_combo.pack(side=tk.LEFT, padx=5)
-        
-        # Bind log level change
-        level_combo.bind('<<ComboboxSelected>>', self.change_log_level)
-        
-        # Clear logs button
-        ttk.Button(
-            control_frame,
-            text="Clear Logs",
-            command=self.clear_logs
-        ).pack(side=tk.RIGHT, padx=5)
-        
-        # Save logs button
-        ttk.Button(
-            control_frame,
-            text="Save Logs",
-            command=self.save_logs
-        ).pack(side=tk.RIGHT, padx=5)
+    def get_active_client(self):
+        """获取当前活动的客户端"""
+        return self.lmstudio_client if self.settings['backend'] == 'lmstudio' else self.ollama_client
 
-    def change_log_level(self, event=None):
-        level = getattr(logging, self.log_level.get())
-        logging.getLogger().setLevel(level)
-        logging.info(f"Log level changed to {self.log_level.get()}")
-
-    def clear_logs(self):
-        self.log_widget.configure(state='normal')
-        self.log_widget.delete(1.0, tk.END)
-        self.log_widget.configure(state='disabled')
-        logging.info("Logs cleared")
-
-    def save_logs(self):
+    def refresh_models(self):
+        """刷新可用模型列表"""
         try:
-            # Create logs directory if it doesn't exist
-            os.makedirs('logs', exist_ok=True)
+            current_model = self.model_combo.currentText()
+            client = self.get_active_client()
+            self.settings['models_list'] = client.fetch_models()
             
-            # Generate filename with timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'logs/lifai_log_{timestamp}.txt'
+            self.model_combo.clear()
+            self.model_combo.addItems(self.settings['models_list'])
             
-            # Save logs
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(self.log_widget.get(1.0, tk.END))
+            # 尝试保持当前选择
+            if current_model in self.settings['models_list']:
+                self.model_combo.setCurrentText(current_model)
+                self.settings['model'] = current_model
+            elif self.settings['models_list']:
+                self.model_combo.setCurrentText(self.settings['models_list'][0])
+                self.settings['model'] = self.settings['models_list'][0]
             
-            logging.info(f"Logs saved to {filename}")
+            logging.info("Models list refreshed successfully")
         except Exception as e:
-            logging.error(f"Failed to save logs: {e}")
+            logging.error(f"Error refreshing models: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to refresh models: {e}")
+
+    def on_backend_change(self, backend):
+        """处理后端选择变更"""
+        self.settings['backend'] = backend
+        self.refresh_models()
+        self.save_config()
+
+    def on_model_change(self, model):
+        """处理模型选择变更"""
+        self.settings['model'] = model
+        self.save_config()
 
     def initialize_modules(self):
-        # Initialize prompt editor first
+        """初始化所有模块"""
+        # 初始化 prompt editor
         self.modules['prompt_editor'] = PromptEditorWindow(
             settings=self.settings
         )
         
-        # Initialize other modules
+        # 初始化其他��块
         self.modules['text_improver'] = TextImproverWindow(
             settings=self.settings,
             ollama_client=self.get_active_client()
@@ -407,25 +285,12 @@ class LifAiHub:
             settings=self.settings,
             ollama_client=self.get_active_client()
         )
-
-        # Initialize AI Chat module
-        self.modules['chat'] = ChatWindow(
-            settings=self.settings,
-            ollama_client=self.get_active_client()
-        )
-
-        # Initialize Agent Workspace module
-        self.modules['agent_workspace'] = AgentWorkspaceWindow(
-            settings=self.settings,
-            ollama_client=self.get_active_client()
-        )
-
-        # Initialize Advanced Agent module
-        self.modules['adv_agent'] = AdvAgentWindow(
+        
+        self.modules['knowledge_manager'] = KnowledgeManagerWindow(
             settings=self.settings
         )
-
-        # Register prompt update callbacks
+        
+        # 注册 prompt 更新回调
         if hasattr(self.modules['text_improver'], 'update_prompts'):
             self.modules['prompt_editor'].add_update_callback(
                 self.modules['text_improver'].update_prompts
@@ -436,60 +301,106 @@ class LifAiHub:
                 self.modules['floating_toolbar'].update_prompts
             )
 
-    def toggle_text_improver(self):
-        if self.text_improver_toggle.get():
+    def toggle_text_improver(self, enabled):
+        if enabled:
             self.modules['text_improver'].show()
         else:
             self.modules['text_improver'].hide()
 
-    def toggle_floating_toolbar(self):
-        if self.toolbar_toggle.get():
-            self.modules['floating_toolbar'].enable()
+    def toggle_floating_toolbar(self, enabled):
+        if enabled:
+            self.modules['floating_toolbar'].show()
         else:
-            self.modules['floating_toolbar'].disable()
+            self.modules['floating_toolbar'].hide()
 
-    def toggle_prompt_editor(self):
-        if self.prompt_editor_toggle.get():
+    def toggle_prompt_editor(self, enabled):
+        if enabled:
             self.modules['prompt_editor'].show()
         else:
             self.modules['prompt_editor'].hide()
 
-    def toggle_chat(self):
-        if self.chat_toggle.get():
-            self.modules['chat'].show()
+    def toggle_knowledge_manager(self, enabled):
+        if enabled:
+            self.modules['knowledge_manager'].show()
         else:
-            self.modules['chat'].hide()
+            self.modules['knowledge_manager'].hide()
 
-    def toggle_agent_workspace(self):
-        if self.agent_workspace_toggle.get():
-            self.modules['agent_workspace'].show()
-        else:
-            self.modules['agent_workspace'].hide()
+    def change_log_level(self, level):
+        """更改日志级别"""
+        logging.getLogger().setLevel(getattr(logging, level))
+        logging.info(f"Log level changed to {level}")
 
-    def toggle_adv_agent(self):
-        """Toggle Advanced Agent window visibility"""
-        if self.adv_agent_toggle.get():
-            self.modules['adv_agent'].show()
-        else:
-            self.modules['adv_agent'].hide()
+    def clear_logs(self):
+        """清除日志"""
+        self.log_widget.clear()
+        logging.info("Logs cleared")
 
-    def run(self):
-        # Make sure the hub window stays on top
-        self.root.attributes('-topmost', True)
-        self.root.mainloop()
+    def save_logs(self):
+        """保存日志"""
+        try:
+            # 创建日志目录
+            os.makedirs('logs', exist_ok=True)
+            
+            # 生成带时间戳的文件名
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'logs/lifai_log_{timestamp}.txt'
+            
+            # 保存日志
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(self.log_widget.toPlainText())
+            
+            logging.info(f"Logs saved to {filename}")
+        except Exception as e:
+            logging.error(f"Failed to save logs: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save logs: {e}")
 
-    def on_closing(self):
-        """Handle application closing"""
-        # Save current model selection
+    def load_last_config(self) -> dict:
+        """加载上次的配置"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            logging.error(f"Error loading config: {e}")
+        return {}
+
+    def save_config(self):
+        """保存当前配置"""
+        try:
+            config = {
+                'last_model': self.model_combo.currentText(),
+                'backend': self.settings['backend']
+            }
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            with open(self.config_file, 'w') as f:
+                json.dump(config, f)
+        except Exception as e:
+            logging.error(f"Error saving config: {e}")
+
+    def closeEvent(self, event):
+        """处理窗口关闭事件"""
+        # 保存当前配置
         self.save_config()
         
-        # Destroy all module windows
+        # 销毁所有模块窗体
         for module in self.modules.values():
             if hasattr(module, 'destroy'):
                 module.destroy()
         
-        self.root.destroy()
+        event.accept()
+
+def main():
+    # Set Qt DPI settings before creating QApplication
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    if hasattr(Qt, 'AA_EnableHighDpiScaling'):
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+    if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+
+    app = QApplication(sys.argv)
+    window = LifAiHub()
+    window.show()
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
-    app = LifAiHub()
-    app.run() 
+    main() 

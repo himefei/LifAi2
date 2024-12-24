@@ -53,3 +53,30 @@ pip-delete-this-directory.txt
 
 # Folders
 modules/AI_chat/chat_history/
+
+# Project specific
+*.json
+!config/*.json
+*.txt
+!requirements.txt
+!config/*.txt
+
+# Model files
+*.gguf
+*.bin
+*.pt
+*.pth
+
+# Generated files
+output/
+temp/
+cache/
+logs/
+
+# Config backups
+*.bak
+config_backup/
+
+# System specific
+Thumbs.db
+.directory
