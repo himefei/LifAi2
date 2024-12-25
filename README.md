@@ -10,11 +10,9 @@ Hey there! 👋 I'm not a professional programmer, but with some high school cod
 
 Inspired by powerful AI tools like **Claude Dev** and **Cursor**, I've created lightweight apps and Chrome extensions. Now, I'm taking on a bigger challenge: a Python app powered by [OLLAMA](https://ollama.ai/) and [LM Studio](https://https://lmstudio.ai/) for:
 
-- 📝 **Spell Checking**: Spot and fix typos
 - ✍️ **Writing Improvement**: Enhance clarity and style
 - 🌐 **Translation**: Bridge language gaps
 - ✏️ **Prompt Editor**: Craft and refine your AI prompts
-- 💬 **AI Chat**: Chat with your local AI assistant
 - 🚀 **RAG**: KG support (API provided by [Anything LLM](https://anythingllm.com/))
 
 ## 🎯 Why This Project?
@@ -30,12 +28,9 @@ AI coding assistants have opened up amazing possibilities for tech enthusiasts l
 
 ## 🔧 Features
 
-- **AI Chat**: Interactive chat with local LLMs through Ollama and LM Studio
 - **Text Improvement**: Writing enhancement and spell checking capabilities
 - **Prompt Editor**: Craft and refine your AI prompts
 - **Knowledge Management**: Built-in knowledge base management with RAG support
-- **Agent Workspace**: Dedicated workspace for AI agent interactions
-- **Advanced Agent**: Specialized agent for complex tasks
 - **Settings Manager**: Configure and manage your LLM settings
 - **Floating Toolbar**: Quick access to common functions
 
