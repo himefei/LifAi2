@@ -38,7 +38,7 @@ class FloatingToolbarModule(QMainWindow):
     def setup_ui(self):
         """设置界面"""
         # 设置窗口属性
-        self.setWindowTitle("LifAi Toolbar")
+        self.setWindowTitle("LifAi2 Toolbar")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
         
         # 创建主窗口部件
@@ -52,7 +52,7 @@ class FloatingToolbarModule(QMainWindow):
         title_layout = QHBoxLayout(title_frame)
         title_layout.setContentsMargins(0, 0, 0, 0)
         
-        title_label = QLabel("✨ LifAi")
+        title_label = QLabel("✨ LifAi2")
         title_layout.addWidget(title_label)
         
         # 最小化按钮

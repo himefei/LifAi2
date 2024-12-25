@@ -35,5 +35,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration system
 - Logging system
 
-[Unreleased]: https://github.com/yourusername/LifAi/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/yourusername/LifAi/releases/tag/v0.1.0 
+[Unreleased]: https://github.com/yourusername/LifAi2/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/yourusername/LifAi2/releases/tag/v0.1.0 

@@ -86,7 +86,7 @@ class ModuleToggle(QWidget):
     def get(self):
         return self.button.isChecked()
 
-class LifAiHub(QMainWindow):
+class LifAi2Hub(QMainWindow):
     def __init__(self):
         super().__init__()
         
@@ -110,11 +110,11 @@ class LifAiHub(QMainWindow):
         self.initialize_modules()
         
         # 设置窗口标题和大小
-        self.setWindowTitle("LifAi Control Hub")
+        self.setWindowTitle("LifAi2 Control Hub")
         self.resize(600, 650)
         
         # 日志初始化
-        logging.info("LifAi Control Hub initialized")
+        logging.info("LifAi2 Control Hub initialized")
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -383,7 +383,7 @@ class LifAiHub(QMainWindow):
         # 保存当前配置
         self.save_config()
         
-        # 销毁所���模块窗体
+        # 销毁所有模块窗体
         for module in self.modules.values():
             if hasattr(module, 'destroy'):
                 module.destroy()
@@ -399,7 +399,7 @@ def main():
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(sys.argv)
-    window = LifAiHub()
+    window = LifAi2Hub()
     window.show()
     sys.exit(app.exec())
 
