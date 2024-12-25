@@ -28,14 +28,29 @@ AI coding assistants have opened up amazing possibilities for tech enthusiasts l
 - **Engage with Community**: Share progress and collaborate with fellow developers
 - **Innovate**: Implement advanced features like RAG agents for complex tasks
 
-## 🔧 Features (Coming Soon)
+## 🔧 Features
 
-- **RAG Agent**: Handle complex, data-driven tasks
+- **AI Chat**: Interactive chat with local LLMs through Ollama and LM Studio
+- **Text Improvement**: Writing enhancement and spell checking capabilities
+- **Prompt Editor**: Craft and refine your AI prompts
+- **Knowledge Management**: Built-in knowledge base management with RAG support
+- **Agent Workspace**: Dedicated workspace for AI agent interactions
+- **Advanced Agent**: Specialized agent for complex tasks
+- **Settings Manager**: Configure and manage your LLM settings
+- **Floating Toolbar**: Quick access to common functions
 
 ## 🛤 Roadmap
 
-1. **RAG Agent Task Realization**
-2. **Next Improved GUI Experience**
+1. **Enhanced UI/UX Experience**
+   - Improve visual design and user interactions
+   - Add more customization options
+2. **Advanced Features**
+   - Expand knowledge management capabilities
+   - Add more specialized agents
+   - Implement batch processing features
+3. **Performance Optimization**
+   - Improve response times
+   - Optimize resource usage
 
 ## 🤝 Contribute
 

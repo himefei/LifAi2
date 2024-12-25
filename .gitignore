@@ -51,10 +51,14 @@ site/
 pip-log.txt
 pip-delete-this-directory.txt 
 
-# Folders
+# Project specific directories
 modules/AI_chat/chat_history/
+knowledge_base/index/
+knowledge_base/docs/
+models/*
+!models/.gitkeep
 
-# Project specific
+# Project specific files
 *.json
 !config/*.json
 *.txt
@@ -66,12 +70,15 @@ modules/AI_chat/chat_history/
 *.bin
 *.pt
 *.pth
+*.onnx
+*.safetensors
 
 # Generated files
 output/
 temp/
 cache/
 logs/
+.locks/
 
 # Config backups
 *.bak
@@ -80,3 +87,8 @@ config_backup/
 # System specific
 Thumbs.db
 .directory
+
+# Local development
+.env
+.local/
+local/
