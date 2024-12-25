@@ -69,9 +69,14 @@ class FloatingToolbarModule(QMainWindow):
         main_layout.addWidget(self.prompt_combo)
         
         # 创建增强按钮
-        self.enhance_btn = QPushButton("✨ Select & Enhance")
+        self.enhance_btn = QPushButton("✨ Select & Enhance (with RAG)")
         self.enhance_btn.clicked.connect(self.start_enhancement)
         main_layout.addWidget(self.enhance_btn)
+        
+        # 创建直接处理按钮
+        self.direct_enhance_btn = QPushButton("✨ Select & Enhance (Direct)")
+        self.direct_enhance_btn.clicked.connect(self.start_direct_enhancement)
+        main_layout.addWidget(self.direct_enhance_btn)
         
         # 拖动相关变量
         self.drag_position = None
@@ -301,8 +306,10 @@ Please process the text according to these instructions, incorporating any relev
         """更新按钮状态"""
         try:
             if not self.processing:
-                self.enhance_btn.setText("✨ Select & Enhance")
+                self.enhance_btn.setText("✨ Select & Enhance (with RAG)")
                 self.enhance_btn.setEnabled(True)
+                self.direct_enhance_btn.setText("✨ Select & Enhance (Direct)")
+                self.direct_enhance_btn.setEnabled(True)
         except Exception as e:
             logger.error(f"Error updating button state: {e}")
 
@@ -324,8 +331,10 @@ Please process the text according to these instructions, incorporating any relev
         """在主线程中重置 UI 状态"""
         try:
             self.waiting_for_selection = False
-            self.enhance_btn.setText("✨ Select & Enhance")
+            self.enhance_btn.setText("✨ Select & Enhance (with RAG)")
             self.enhance_btn.setEnabled(True)
+            self.direct_enhance_btn.setText("✨ Select & Enhance (Direct)")
+            self.direct_enhance_btn.setEnabled(True)
             self.show()
         except Exception as e:
             logger.error(f"Error resetting UI: {e}")
@@ -347,6 +356,158 @@ Please process the text according to these instructions, incorporating any relev
         except Exception as e:
             logger.error(f"Error in close event: {e}")
             event.accept()
+
+    def start_direct_enhancement(self):
+        """开始直接文本增强（不使用知识库）"""
+        if self.waiting_for_selection:
+            return
+            
+        self.direct_enhance_btn.setText("Select text now...")
+        self.direct_enhance_btn.setEnabled(False)
+        self.waiting_for_selection = True
+        
+        # 在单独的线程中等待选择
+        threading.Thread(target=self.wait_for_direct_selection, daemon=True).start()
+        
+    def wait_for_direct_selection(self):
+        """等待文本选择并直接处理（不使用知识库）"""
+        try:
+            self.mouse_down = False
+            self.is_selecting = False
+            
+            def on_click(x, y, button, pressed):
+                if button == mouse.Button.left:
+                    if pressed:
+                        # 记录鼠标按下的时间和位置
+                        self.mouse_down = True
+                        self.mouse_down_time = time.time()
+                        self.mouse_down_pos = (x, y)
+                        
+                        # 启动一个线程来检测长按
+                        def check_long_press():
+                            time.sleep(0.5)  # 等待0.5秒
+                            if self.mouse_down:  # 如果鼠标还在按下状态
+                                self.is_selecting = True
+                                logger.debug("Long press detected, user is selecting text...")
+                        
+                        threading.Thread(target=check_long_press, daemon=True).start()
+                        
+                    else:  # 鼠标释放
+                        if self.mouse_down and self.is_selecting:
+                            # 计算鼠标移动距离
+                            current_pos = (x, y)
+                            move_distance = ((current_pos[0] - self.mouse_down_pos[0]) ** 2 + 
+                                          (current_pos[1] - self.mouse_down_pos[1]) ** 2) ** 0.5
+                            
+                            # 如果确实发生了移动
+                            if move_distance > 10:  # 10像素的移动阈值
+                                selected_text = self.clipboard.get_selected_text()
+                                if selected_text:
+                                    logger.debug(f"Selection complete, moved {move_distance:.1f}px: {selected_text[:100]}...")
+                                    self.waiting_for_selection = False
+                                    # 在新线程中处理文本
+                                    threading.Thread(
+                                        target=self._process_text_direct_thread,
+                                        args=(selected_text,),
+                                        daemon=True
+                                    ).start()
+                                    return False  # 停止监听
+                            else:
+                                logger.debug(f"Ignored selection without movement ({move_distance:.1f}px)")
+                                
+                        # 重置状态
+                        self.mouse_down = False
+                        self.is_selecting = False
+                        self.mouse_down_time = None
+                        self.mouse_down_pos = None
+            
+            # 启动鼠标监听
+            with mouse.Listener(on_click=on_click) as listener:
+                listener.join()
+                
+        except Exception as e:
+            logger.error(f"Error waiting for selection: {e}")
+            self.show_error.emit("Error", f"Error waiting for selection: {e}")
+        finally:
+            self.selection_finished.emit()
+            
+    def _process_text_direct_thread(self, text: str):
+        """在单独的线程中直接处理文本（不使用知识库）
+        
+        Args:
+            text: 要处理的文本
+        """
+        try:
+            # 获取当前选择的提示模板
+            try:
+                current_prompt = self.prompt_combo.currentText()
+                logger.info(f"Using prompt template: {current_prompt}")
+                prompt_template = llm_prompts.get(current_prompt, "Please improve this text.")
+            except Exception as e:
+                logger.error(f"Error getting prompt template: {e}")
+                prompt_template = "Please improve this text."
+            
+            # 构建系统提示词
+            system_prompt = """You are an AI assistant that helps improve and enhance text."""
+            
+            # 构建用户提示词
+            user_prompt = f"""Task Description:
+{prompt_template}
+
+Text to Process:
+{text}
+
+Please process the text according to these instructions."""
+            
+            # 调用模型生成回复
+            try:
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
+                
+                logger.info("Sending prompts to LM Studio:")
+                logger.info(f"System prompt:\n{system_prompt}")
+                logger.info(f"User prompt:\n{user_prompt}")
+                
+                response = self.ollama_client.chat_completion(
+                    messages=messages,
+                    model=self.settings.get('model', 'mistral')
+                )
+                
+                if response and 'choices' in response and len(response['choices']) > 0:
+                    result = response['choices'][0]['message']['content'].strip()
+                    logger.info("Successfully processed text")
+                    self.text_processed.emit(result)  # 使用信号发送结果
+                else:
+                    logger.error("Failed to process text: Invalid response format")
+                    self.show_error.emit("Error", "Failed to generate improved text")
+            except Exception as e:
+                logger.error(f"Error calling LLM: {e}")
+                self.show_error.emit("Error", f"Error calling language model: {str(e)}")
+                
+        except Exception as e:
+            logger.error(f"Error processing text: {e}")
+            logger.exception(e)
+            self.show_error.emit("Error", f"Error processing text: {str(e)}")
+            
+        finally:
+            try:
+                self.processing = False
+                self.update_button_state()
+            except Exception as e:
+                logger.error(f"Error in cleanup: {e}")
+                
+    def update_button_state(self):
+        """更新按钮状态"""
+        try:
+            if not self.processing:
+                self.enhance_btn.setText("✨ Select & Enhance (with RAG)")
+                self.enhance_btn.setEnabled(True)
+                self.direct_enhance_btn.setText("✨ Select & Enhance (Direct)")
+                self.direct_enhance_btn.setEnabled(True)
+        except Exception as e:
+            logger.error(f"Error updating button state: {e}")
 
 class FloatingMiniWindow(QMainWindow):
     def __init__(self, parent):

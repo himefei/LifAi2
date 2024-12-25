@@ -86,10 +86,25 @@ class KnowledgeManagerWindow(QWidget):
         self.knowledge_table.horizontalHeader().setStretchLastSection(True)
         view_layout.addWidget(self.knowledge_table)
         
+        # 添加按钮布局
+        button_layout = QHBoxLayout()
+        
         # 刷新按钮
         refresh_button = QPushButton("Refresh")
         refresh_button.clicked.connect(self.refresh_knowledge_table)
-        view_layout.addWidget(refresh_button)
+        button_layout.addWidget(refresh_button)
+        
+        # 删除选中按钮
+        delete_selected_button = QPushButton("Delete Selected")
+        delete_selected_button.clicked.connect(self.delete_selected)
+        button_layout.addWidget(delete_selected_button)
+        
+        # 清空知识库按钮
+        clear_all_button = QPushButton("Clear All")
+        clear_all_button.clicked.connect(self.clear_knowledge_base)
+        button_layout.addWidget(clear_all_button)
+        
+        view_layout.addLayout(button_layout)
         
         # 添加标签页
         tab_widget.addTab(add_tab, "Add Knowledge")
@@ -253,4 +268,53 @@ class KnowledgeManagerWindow(QWidget):
         
     def hide(self):
         """隐藏窗口"""
-        super().hide() 
+        super().hide()
+        
+    def delete_selected(self):
+        """删除选中的知识条目"""
+        selected_rows = set(item.row() for item in self.knowledge_table.selectedItems())
+        if not selected_rows:
+            self.show_error("Please select items to delete")
+            return
+            
+        # 确认删除
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete {len(selected_rows)} selected items?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if confirm == QMessageBox.StandardButton.Yes:
+            try:
+                # 将行号转换为列表并排序
+                rows_to_delete = sorted(list(selected_rows))
+                # 删除文档
+                success = self.knowledge_base.delete_documents(rows_to_delete)
+                
+                if success:
+                    self.refresh_knowledge_table()
+                    QMessageBox.information(self, "Success", "Selected items deleted successfully!")
+                else:
+                    self.show_error("Failed to delete some items")
+                    
+            except Exception as e:
+                self.show_error(f"Error deleting items: {e}")
+                
+    def clear_knowledge_base(self):
+        """清空整个知识库"""
+        # 确认清空
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Clear All",
+            "Are you sure you want to clear the entire knowledge base? This action cannot be undone!",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if confirm == QMessageBox.StandardButton.Yes:
+            try:
+                self.knowledge_base.clear()
+                self.refresh_knowledge_table()
+                QMessageBox.information(self, "Success", "Knowledge base cleared successfully!")
+            except Exception as e:
+                self.show_error(f"Error clearing knowledge base: {e}") 

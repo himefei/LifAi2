@@ -145,7 +145,7 @@ class KnowledgeBase:
             if not self.use_ivf and len(self.documents) >= 1000:
                 logger.info("Switching to IVF index due to dataset size")
                 # 创建新的 IVF 索引
-                ncentroids = min(int(len(self.documents) / 10), 100)  # 动态设置聚类数
+                ncentroids = min(int(len(self.documents) / 10), 100)  # 动态设���聚类数
                 quantizer = faiss.IndexFlatL2(self.dimension)
                 new_index = faiss.IndexIVFFlat(quantizer, self.dimension, ncentroids)
                 
@@ -251,7 +251,17 @@ class KnowledgeBase:
             query_vector = self.model.encode([query], convert_to_numpy=True)
             
             # 搜索最相似的文档，增加检索数量以提高匹配概率
-            distances, indices = self.index.search(query_vector, k=min(k * 3, len(self.documents)))
+            search_k = min(k * 3, len(self.documents))
+            if search_k == 0:
+                logger.warning("No documents to search")
+                return ""
+                
+            distances, indices = self.index.search(query_vector, k=search_k)
+            
+            # 检查搜索结果是否为空
+            if len(distances) == 0 or len(indices) == 0:
+                logger.warning("No search results found")
+                return ""
             
             # 构建上下文，优先考虑包含相同缩写词的文档
             context_parts = []
@@ -260,6 +270,9 @@ class KnowledgeBase:
             
             # 第一轮：优先添加包含任何查询缩写词的文档
             for dist, idx in zip(distances[0], indices[0]):
+                if idx < 0 or idx >= len(self.documents):  # 添加索引检查
+                    continue
+                    
                 doc = self.documents[idx]
                 if doc in added_docs:
                     continue
@@ -286,6 +299,9 @@ class KnowledgeBase:
                 for dist, idx in zip(distances[0], indices[0]):
                     if len(context_parts) >= k:
                         break
+                        
+                    if idx < 0 or idx >= len(self.documents):  # 添加索引检查
+                        continue
                         
                     doc = self.documents[idx]
                     if doc in added_docs:
