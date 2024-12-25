@@ -85,11 +85,6 @@ class PromptEditorWindow(QMainWindow):
         self.template_text = QTextEdit()
         right_layout.addWidget(self.template_text)
         
-        # Help text
-        help_label = QLabel("Use {text} as placeholder for the selected text in your prompt template")
-        help_label.setStyleSheet("color: gray")
-        right_layout.addWidget(help_label)
-        
         # Buttons
         buttons_layout = QHBoxLayout()
         
@@ -148,22 +143,13 @@ class PromptEditorWindow(QMainWindow):
         self.template_text.clear()
         self.prompts_list.clearSelection()
 
-    def validate_prompt(self, prompt_text: str) -> bool:
-        """验证提示词格式
+    def show_error(self, message: str):
+        """显示错误消息对话框"""
+        QMessageBox.critical(self, "Error", message)
         
-        Args:
-            prompt_text: 提示词文本
-            
-        Returns:
-            是否有效
-        """
-        # 提示词不能为空
-        if not prompt_text.strip():
-            self.show_error("Prompt cannot be empty")
-            return False
-            
-        # 提示词应该包含基本的指令
-        if len(prompt_text.strip()) < 10:
+    def validate_prompt(self, prompt: str) -> bool:
+        """验证提示词是否有效"""
+        if not prompt or len(prompt.strip()) < 10:
             self.show_error("Prompt is too short")
             return False
             

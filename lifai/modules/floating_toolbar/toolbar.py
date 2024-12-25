@@ -108,13 +108,13 @@ class FloatingToolbarModule(QMainWindow):
             self.move(self.mini_window.pos())
             self.mini_window.hide()
         self.show()
-
+        
     def start_drag(self, event):
         """开始拖动窗口"""
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
-
+        
     def on_drag(self, event):
         """处理窗口拖动"""
         if event.buttons() == Qt.MouseButton.LeftButton and self.drag_position:
@@ -485,7 +485,7 @@ Please process the text according to these instructions."""
             except Exception as e:
                 logger.error(f"Error calling LLM: {e}")
                 self.show_error.emit("Error", f"Error calling language model: {str(e)}")
-                
+
         except Exception as e:
             logger.error(f"Error processing text: {e}")
             logger.exception(e)

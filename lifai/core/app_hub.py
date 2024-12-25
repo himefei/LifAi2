@@ -14,7 +14,7 @@ sys.path.append(project_root)
 
 from lifai.utils.ollama_client import OllamaClient
 from lifai.utils.lmstudio_client import LMStudioClient
-from lifai.modules.text_improver.improver import TextImproverWindow
+# from lifai.modules.text_improver.improver import TextImproverWindow
 from lifai.modules.floating_toolbar.toolbar import FloatingToolbarModule
 from lifai.modules.prompt_editor.editor import PromptEditorWindow
 from lifai.modules.knowledge_manager.manager import KnowledgeManagerWindow
@@ -158,9 +158,9 @@ class LifAiHub(QMainWindow):
         modules_layout = QVBoxLayout(modules_group)
         
         # Text Improver toggle
-        self.text_improver_toggle = ModuleToggle("Text Improver Window")
-        self.text_improver_toggle.toggled.connect(self.toggle_text_improver)
-        modules_layout.addWidget(self.text_improver_toggle)
+        # self.text_improver_toggle = ModuleToggle("Text Improver Window")
+        # self.text_improver_toggle.toggled.connect(self.toggle_text_improver)
+        # modules_layout.addWidget(self.text_improver_toggle)
         
         # Floating Toolbar toggle
         self.toolbar_toggle = ModuleToggle("Floating Toolbar")
@@ -275,11 +275,11 @@ class LifAiHub(QMainWindow):
             settings=self.settings
         )
         
-        # 初始化其他��块
-        self.modules['text_improver'] = TextImproverWindow(
-            settings=self.settings,
-            ollama_client=self.get_active_client()
-        )
+        # 初始化其他模块
+        # self.modules['text_improver'] = TextImproverWindow(
+        #     settings=self.settings,
+        #     ollama_client=self.get_active_client()
+        # )
         
         self.modules['floating_toolbar'] = FloatingToolbarModule(
             settings=self.settings,
@@ -291,10 +291,10 @@ class LifAiHub(QMainWindow):
         )
         
         # 注册 prompt 更新回调
-        if hasattr(self.modules['text_improver'], 'update_prompts'):
-            self.modules['prompt_editor'].add_update_callback(
-                self.modules['text_improver'].update_prompts
-            )
+        # if hasattr(self.modules['text_improver'], 'update_prompts'):
+        #     self.modules['prompt_editor'].add_update_callback(
+        #         self.modules['text_improver'].update_prompts
+        #     )
             
         if hasattr(self.modules['floating_toolbar'], 'update_prompts'):
             self.modules['prompt_editor'].add_update_callback(
@@ -302,10 +302,11 @@ class LifAiHub(QMainWindow):
             )
 
     def toggle_text_improver(self, enabled):
-        if enabled:
-            self.modules['text_improver'].show()
-        else:
-            self.modules['text_improver'].hide()
+        pass
+        # if enabled:
+        #     self.modules['text_improver'].show()
+        # else:
+        #     self.modules['text_improver'].hide()
 
     def toggle_floating_toolbar(self, enabled):
         if enabled:
@@ -382,7 +383,7 @@ class LifAiHub(QMainWindow):
         # 保存当前配置
         self.save_config()
         
-        # 销毁所有模块窗体
+        # 销毁所���模块窗体
         for module in self.modules.values():
             if hasattr(module, 'destroy'):
                 module.destroy()
