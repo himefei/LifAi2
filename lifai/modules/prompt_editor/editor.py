@@ -171,17 +171,13 @@ class PromptEditorWindow(QMainWindow):
             # 更新提示词
             self.prompts_data['templates'][name] = prompt
             
-            # 保存到文件
-            self.save_prompts_to_file()
-            
-            # 更新选项
+            # 更新列表
             self.refresh_list()
             
-            # 通知其他模块
-            for callback in self.update_callbacks:
-                callback(list(self.prompts_data['templates'].keys()))
-                
-            QMessageBox.information(self, "Success", "Prompt saved successfully!")
+            # 标记需要应用更改
+            self.mark_unsaved_changes()
+            
+            QMessageBox.information(self, "Success", "Prompt saved successfully! Click 'Apply Changes' to update all modules.")
             
         except Exception as e:
             self.show_error(f"Failed to save prompt: {e}")
@@ -203,6 +199,7 @@ class PromptEditorWindow(QMainWindow):
             self.prompts_list.takeItem(self.prompts_list.row(current))
             self.new_prompt()
             self.mark_unsaved_changes()
+            self.status_label.setText("Prompt deleted. Click 'Apply Changes' to update all modules.")
 
     def mark_unsaved_changes(self):
         """Mark that there are changes that need to be applied"""
@@ -214,19 +211,21 @@ class PromptEditorWindow(QMainWindow):
     def apply_changes(self):
         """Apply changes to all modules"""
         try:
+            # First save to file to ensure persistence
+            self.save_prompts_to_file()
+            
             # Update the global prompt variables
             llm_prompts.clear()
             llm_prompts.update(self.prompts_data['templates'])
             
-            # Save to file
-            self.save_prompts_to_file()
-            
-            # Notify all registered callbacks
+            # Notify all registered callbacks with the updated prompt keys
+            prompt_keys = list(llm_prompts.keys())
             for callback in self.update_callbacks:
                 try:
-                    callback(list(llm_prompts.keys()))
+                    callback(prompt_keys)
+                    logger.debug(f"Successfully notified callback: {callback.__qualname__}")
                 except Exception as e:
-                    logger.error(f"Error notifying prompt update: {e}")
+                    logger.error(f"Error in callback {callback.__qualname__}: {e}")
             
             # Reset status
             self.has_unsaved_changes = False
@@ -234,11 +233,11 @@ class PromptEditorWindow(QMainWindow):
             self.status_label.setStyleSheet("color: #4CAF50")  # Green color
             self.apply_btn.setEnabled(False)
             
-            logger.info("Prompt changes applied to all modules")
+            logger.info(f"Applied changes to {len(self.update_callbacks)} modules with {len(prompt_keys)} prompts")
             
         except Exception as e:
             logger.error(f"Error applying changes: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to apply changes: {e}")
+            self.show_error(f"Failed to apply changes: {e}")
 
     def save_prompts_to_file(self):
         """保存所有提示词到文件"""
@@ -300,9 +299,19 @@ class PromptEditorWindow(QMainWindow):
             self.prompts_list.addItem(option)
 
     def add_update_callback(self, callback: Callable):
-        """Add a callback to be notified when prompts are updated"""
+        """Add a callback to be notified of prompt updates
+        
+        Args:
+            callback: A function that takes a list of prompt keys as argument
+        """
         if callback not in self.update_callbacks:
             self.update_callbacks.append(callback)
+            logger.info(f"Added prompt update callback: {callback.__qualname__}")
+            # Immediately call the callback with current prompts
+            try:
+                callback(list(self.prompts_data['templates'].keys()))
+            except Exception as e:
+                logger.error(f"Error in initial callback {callback.__qualname__}: {e}")
 
     def notify_prompt_updates(self):
         """Update the global prompts"""

@@ -255,13 +255,13 @@ Remember:
             user_prompt = f"""Knowledge Base Context:
 {context if context else "No relevant context found in knowledge base."}
 
-Task Description:
+Task Instructions and Guidelines:
 {prompt_template}
 
 Text to Process:
 {text}
 
-Please process the text according to these instructions, incorporating any relevant knowledge base information."""
+Please explicitly follow the task instructions and guidelines, and incorporating any relevant knowledge base information to complete the task."""
             
             # 调用模型生成回复
             try:
@@ -451,13 +451,13 @@ Please process the text according to these instructions, incorporating any relev
             system_prompt = """You are an AI assistant that helps improve and enhance text."""
             
             # 构建用户提示词
-            user_prompt = f"""Task Description:
+            user_prompt = f"""Task Instructions and Guidelines:
 {prompt_template}
 
 Text to Process:
 {text}
 
-Please process the text according to these instructions."""
+Please explicitly follow the task instructions and guidelines to complete the task."""
             
             # 调用模型生成回复
             try:
@@ -508,6 +508,34 @@ Please process the text according to these instructions."""
                 self.direct_enhance_btn.setEnabled(True)
         except Exception as e:
             logger.error(f"Error updating button state: {e}")
+
+    def update_prompts(self, prompt_keys=None):
+        """更新提示词列表
+        
+        Args:
+            prompt_keys: 可选的提示词键列表，如果为None则使用全局llm_prompts
+        """
+        try:
+            # 保存当前选择
+            current_text = self.prompt_combo.currentText()
+            
+            # 清空并重新填充
+            self.prompt_combo.clear()
+            if prompt_keys is not None:
+                self.prompt_combo.addItems(prompt_keys)
+            else:
+                self.prompt_combo.addItems(list(llm_prompts.keys()))
+            
+            # 尝试恢复之前的选择
+            index = self.prompt_combo.findText(current_text)
+            if index >= 0:
+                self.prompt_combo.setCurrentIndex(index)
+            elif self.prompt_combo.count() > 0:
+                self.prompt_combo.setCurrentIndex(0)
+                
+            logger.info("Prompts list updated in floating toolbar")
+        except Exception as e:
+            logger.error(f"Error updating prompts in floating toolbar: {e}")
 
 class FloatingMiniWindow(QMainWindow):
     def __init__(self, parent):
