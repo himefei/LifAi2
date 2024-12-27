@@ -45,10 +45,10 @@ class KnowledgeBase:
         os.makedirs(self.index_dir, exist_ok=True)
         
         # 初始化 embedding 模型
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.model = SentenceTransformer('BAAI/bge-large-en-v1.5')
         
         # 初始化 FAISS 索引
-        self.dimension = 384  # all-MiniLM-L6-v2 的维度
+        self.dimension = 1024  # bge-large-en-v1.5 的维度
         # 对于小数据集，使用简单的 IndexFlatL2
         self.index = faiss.IndexFlatL2(self.dimension)
         self.use_ivf = False  # 标记是否使用 IVF 索引
@@ -61,7 +61,7 @@ class KnowledgeBase:
         self._load_index()
         
         logger.info(f"Initialized knowledge base at {base_dir}")
-        logger.info(f"Using model: all-MiniLM-L6-v2")
+        logger.info(f"Using model: BAAI/bge-large-en-v1.5")
         logger.info(f"Vector dimension: {self.dimension}")
         logger.info(f"Current documents count: {len(self.documents)}")
         
