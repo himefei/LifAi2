@@ -4,6 +4,12 @@
 
 ![Hub Screenshot](assets/hub2.png)
 
+## 🚀 Requirements
+
+- **Python**: Version 3.10 required
+- **OLLAMA** or **LM Studio**: For running local LLMs
+- **Operating System**: Windows/Linux/MacOS
+
 ## 🚀 Welcome!
 
 Hey there! 👋 I'm not a professional programmer, but with some high school coding experience and a lot of enthusiasm, I'm diving into the world of GitHub to build something awesome with AI.
@@ -32,4 +38,4 @@ This is a personal learning journey, and I'm still getting the hang of GitHub. B
 
 ---
 
-Thanks for checking out my project! Let’s see where this AI-assisted adventure takes us. 🚀✨
+Thanks for checking out my project! Let's see where this AI-assisted adventure takes us. 🚀✨
