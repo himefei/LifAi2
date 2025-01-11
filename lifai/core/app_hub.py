@@ -391,13 +391,6 @@ class LifAi2Hub(QMainWindow):
         event.accept()
 
 def main():
-    # Set Qt DPI settings before creating QApplication
-    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-    if hasattr(Qt, 'AA_EnableHighDpiScaling'):
-        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-    if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
-        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
-
     app = QApplication(sys.argv)
     window = LifAi2Hub()
     window.show()

@@ -73,6 +73,25 @@ models/*
 *.onnx
 *.safetensors
 
+# Embedding models and vector databases
+models/models--*
+*.pkl
+*.npz
+*.npy
+*.faiss
+*.hdf5
+*.arrow
+*.parquet
+vector_store/
+embeddings/
+.cache/huggingface/
+.vector_cache/
+sentence-transformers/
+**/knowledge_base/**/index/
+**/knowledge_base/**/vectors/
+**/knowledge_base/**/*.faiss
+**/knowledge_base/**/*.pkl
+
 # Generated files
 output/
 temp/
