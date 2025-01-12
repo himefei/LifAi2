@@ -133,8 +133,13 @@ class LifAi2Hub(QMainWindow):
         self.backend_combo = QComboBox()
         self.backend_combo.addItems(['ollama', 'lmstudio'])
         self.backend_combo.setCurrentText(self.settings['backend'])
-        self.backend_combo.currentTextChanged.connect(self.on_backend_change)
         backend_layout.addWidget(self.backend_combo)
+        
+        # Add confirm selection button
+        confirm_btn = QPushButton("✓ Confirm Selection")
+        confirm_btn.clicked.connect(self.confirm_backend_selection)
+        backend_layout.addWidget(confirm_btn)
+        
         settings_layout.addLayout(backend_layout)
         
         # Model 选择
@@ -258,10 +263,9 @@ class LifAi2Hub(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to refresh models: {e}")
 
     def on_backend_change(self, backend):
-        """处理后端选择变更"""
-        self.settings['backend'] = backend
-        self.refresh_models()
-        self.save_config()
+        """Handle backend selection change"""
+        # Remove automatic update - will be handled by confirm button
+        pass
 
     def on_model_change(self, model):
         """处理模型选择变更"""
@@ -389,6 +393,32 @@ class LifAi2Hub(QMainWindow):
                 module.destroy()
         
         event.accept()
+
+    def confirm_backend_selection(self):
+        """Confirm and apply backend selection"""
+        try:
+            new_backend = self.backend_combo.currentText()
+            self.settings['backend'] = new_backend
+            
+            # Update the active client
+            active_client = self.get_active_client()
+            
+            # Update all modules with new client
+            for module in self.modules.values():
+                if hasattr(module, 'update_client'):
+                    module.update_client(active_client)
+            
+            # Refresh models list
+            self.refresh_models()
+            
+            # Save configuration
+            self.save_config()
+            
+            logging.info(f"Backend switched to {new_backend} and updated in all modules")
+            QMessageBox.information(self, "Success", f"Backend switched to {new_backend}")
+        except Exception as e:
+            logging.error(f"Error switching backend: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to switch backend: {e}")
 
 def main():
     app = QApplication(sys.argv)

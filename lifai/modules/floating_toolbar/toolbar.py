@@ -11,11 +11,12 @@ from lifai.utils.clipboard_utils import ClipboardManager
 from lifai.utils.knowledge_base import KnowledgeBase
 import time
 import threading
+import logging
 
 logger = get_module_logger(__name__)
 
 class FloatingToolbarModule(QMainWindow):
-    # 定义信号
+    # Define signals at class level
     text_processed = pyqtSignal(str)
     selection_finished = pyqtSignal()
     show_error = pyqtSignal(str, str)
@@ -23,14 +24,15 @@ class FloatingToolbarModule(QMainWindow):
     def __init__(self, settings: Dict, ollama_client: OllamaClient):
         super().__init__()
         self.settings = settings
-        self.ollama_client = ollama_client
-        self.knowledge_base = KnowledgeBase()  # 初始化知识库
-        self.clipboard = ClipboardManager()  # 初始化剪贴板管理器
+        self.client = ollama_client  # Rename to be more generic
+        self.processing = False
+        self.clipboard = ClipboardManager()
+        self.knowledge_base = KnowledgeBase()  # Initialize knowledge base
         self.setup_ui()
         self.setup_hotkeys()
         self.hide()
         
-        # 连接信号
+        # Connect signals
         self.text_processed.connect(self._handle_processed_text)
         self.selection_finished.connect(self._reset_ui)
         self.show_error.connect(self._show_error_dialog)
@@ -196,111 +198,62 @@ class FloatingToolbarModule(QMainWindow):
             self.selection_finished.emit()
 
     def _process_text_thread(self, text: str):
-        """在单独的线程中处理文本
+        """Process text in a separate thread
         
         Args:
-            text: 要处理的文本
+            text: Text to process
         """
         try:
-            # 检查知识库状态
-            doc_count = self.knowledge_base.get_document_count()
-            logger.info(f"Current knowledge base contains {doc_count} documents")
+            self.processing = True
             
-            # 获取相关上下文，使用更宽松的参数以获取更多结果
-            logger.info(f"Attempting to retrieve context for text: {text[:100]}...")
+            # Get current prompt template
+            current_prompt = self.prompt_combo.currentText()
+            prompt_template = llm_prompts[current_prompt]
             
-            try:
-                # 使用更宽松的参数
-                context = self.knowledge_base.get_context(
-                    text,
-                    k=50,  # 检索更多文档
-                    threshold=0.01  # 非常低的阈值，几乎不过滤任何结果
-                )
-            except Exception as e:
-                logger.error(f"Error retrieving context: {e}")
-                context = None
-            
-            if context:
-                logger.info(f"Successfully retrieved context: {context[:200]}...")
-            else:
-                logger.warning("No context retrieved from knowledge base")
-            
-            # 获取当前选择的提示模板
-            try:
-                current_prompt = self.prompt_combo.currentText()
-                logger.info(f"Using prompt template: {current_prompt}")
-                prompt_template = llm_prompts.get(current_prompt, "Please improve this text.")
-            except Exception as e:
-                logger.error(f"Error getting prompt template: {e}")
-                prompt_template = "Please improve this text."
-            
-            # 构建系统提示词
-            system_prompt = """You are an AI assistant with access to a knowledge base that contains important reference information.
-
-Instructions for Using Knowledge Base:
-1. FIRST, carefully analyze the knowledge base context and identify relevant information
-2. When you find relevant information:
-   - Use it to better understand the context and requirements
-   - Ensure your response is consistent with the knowledge base
-3. For the rest of the text:
-   - Process it according to the task description
-   - Maintain consistency with the knowledge base information
-
-Remember:
-- The knowledge base contains authoritative information - always prefer it when available
-- Maintain the overall flow and style while incorporating knowledge base information
-- Ensure all terms and concepts are correctly interpreted according to the knowledge base"""
-            
-            # 构建用户提示词，始终包含上下文部分
-            user_prompt = f"""Knowledge Base Context:
-{context if context else "No relevant context found in knowledge base."}
-
-Task Instructions and Guidelines:
-{prompt_template}
-
-Text to Process:
-{text}
-
-Please explicitly follow the task instructions and guidelines, and incorporating any relevant knowledge base information to complete the task."""
-            
-            # 调用模型生成回复
-            try:
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-                
-                logger.info("Sending prompts to LM Studio:")
-                logger.info(f"System prompt:\n{system_prompt}")
-                logger.info(f"User prompt:\n{user_prompt}")
-                
-                response = self.ollama_client.chat_completion(
-                    messages=messages,
+            # Handle different client types
+            if isinstance(self.client, OllamaClient):  # Ollama client
+                # Build prompt with system and user messages
+                full_prompt = f"System: {prompt_template}\n\nUser: {text}"
+                response = self.client.generate_response(
+                    prompt=full_prompt,
                     model=self.settings.get('model', 'mistral')
                 )
-                
-                if response and 'choices' in response and len(response['choices']) > 0:
-                    result = response['choices'][0]['message']['content'].strip()
-                    logger.info("Successfully processed text")
-                    self.text_processed.emit(result)  # 使用信号发送结果
+                if response:
+                    processed_text = response.strip()
                 else:
-                    logger.error("Failed to process text: Invalid response format")
-                    self.show_error.emit("Error", "Failed to generate improved text")
-            except Exception as e:
-                logger.error(f"Error calling LLM: {e}")
-                self.show_error.emit("Error", f"Error calling language model: {str(e)}")
+                    raise Exception("Invalid response format from Ollama")
+            else:  # LM Studio client (OpenAI compatible)
+                messages = [
+                    {"role": "system", "content": prompt_template},
+                    {"role": "user", "content": text}
+                ]
+                response = self.client.chat_completion(
+                    messages=messages,
+                    model=self.settings.get('model', 'mistral'),
+                    temperature=0.7
+                )
+                if response and 'choices' in response and len(response['choices']) > 0:
+                    processed_text = response['choices'][0]['message']['content'].strip()
+                else:
+                    raise Exception("Invalid response format from LM Studio")
             
+            QApplication.instance().postEvent(
+                self,
+                CustomEvent(lambda: self._handle_processed_text(processed_text))
+            )
+                
         except Exception as e:
             logger.error(f"Error processing text: {e}")
-            logger.exception(e)
-            self.show_error.emit("Error", f"Error processing text: {str(e)}")
-            
+            QApplication.instance().postEvent(
+                self,
+                CustomEvent(lambda: self.show_error.emit("Error", f"Failed to process text: {e}"))
+            )
         finally:
-            try:
-                self.processing = False
-                self.update_button_state()
-            except Exception as e:
-                logger.error(f"Error in cleanup: {e}")
+            self.processing = False
+            QApplication.instance().postEvent(
+                self,
+                CustomEvent(self._reset_ui)
+            )
 
     def update_button_state(self):
         """更新按钮状态"""
@@ -432,13 +385,13 @@ Please explicitly follow the task instructions and guidelines, and incorporating
             self.selection_finished.emit()
             
     def _process_text_direct_thread(self, text: str):
-        """在单独的线程中直接处理文本（不使用知识库）
+        """Process text directly in a separate thread (without using knowledge base)
         
         Args:
-            text: 要处理的文本
+            text: Text to process
         """
         try:
-            # 获取当前选择的提示模板
+            # Get current prompt template
             try:
                 current_prompt = self.prompt_combo.currentText()
                 logger.info(f"Using prompt template: {current_prompt}")
@@ -447,10 +400,10 @@ Please explicitly follow the task instructions and guidelines, and incorporating
                 logger.error(f"Error getting prompt template: {e}")
                 prompt_template = "Please improve this text."
             
-            # 构建系统提示词
+            # Build system prompt
             system_prompt = """You are an AI assistant that helps improve and enhance text."""
             
-            # 构建用户提示词
+            # Build user prompt
             user_prompt = f"""Task Instructions and Guidelines:
 {prompt_template}
 
@@ -459,29 +412,41 @@ Text to Process:
 
 Please explicitly follow the task instructions and guidelines to complete the task."""
             
-            # 调用模型生成回复
+            # Call model for response
             try:
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-                
-                logger.info("Sending prompts to LM Studio:")
+                logger.info("Sending prompts to LLM:")
                 logger.info(f"System prompt:\n{system_prompt}")
                 logger.info(f"User prompt:\n{user_prompt}")
                 
-                response = self.ollama_client.chat_completion(
-                    messages=messages,
-                    model=self.settings.get('model', 'mistral')
-                )
+                # Handle different client types
+                if isinstance(self.client, OllamaClient):  # Ollama client
+                    # Combine prompts for Ollama
+                    full_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
+                    response = self.client.generate_response(
+                        prompt=full_prompt,
+                        model=self.settings.get('model', 'mistral')
+                    )
+                    if response:
+                        result = response.strip()
+                    else:
+                        raise Exception("Invalid response format from Ollama")
+                else:  # LM Studio client (OpenAI compatible)
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
+                    response = self.client.chat_completion(
+                        messages=messages,
+                        model=self.settings.get('model', 'mistral'),
+                        temperature=0.7
+                    )
+                    if response and 'choices' in response and len(response['choices']) > 0:
+                        result = response['choices'][0]['message']['content'].strip()
+                    else:
+                        raise Exception("Invalid response format from LM Studio")
                 
-                if response and 'choices' in response and len(response['choices']) > 0:
-                    result = response['choices'][0]['message']['content'].strip()
-                    logger.info("Successfully processed text")
-                    self.text_processed.emit(result)  # 使用信号发送结果
-                else:
-                    logger.error("Failed to process text: Invalid response format")
-                    self.show_error.emit("Error", "Failed to generate improved text")
+                logger.info("Successfully processed text")
+                self.text_processed.emit(result)
             except Exception as e:
                 logger.error(f"Error calling LLM: {e}")
                 self.show_error.emit("Error", f"Error calling language model: {str(e)}")
@@ -536,6 +501,15 @@ Please explicitly follow the task instructions and guidelines to complete the ta
             logger.info("Prompts list updated in floating toolbar")
         except Exception as e:
             logger.error(f"Error updating prompts in floating toolbar: {e}")
+
+    def update_client(self, new_client):
+        """Update the LLM client when backend changes"""
+        try:
+            self.client = new_client
+            logging.info("Floating toolbar client updated successfully")
+        except Exception as e:
+            logging.error(f"Error updating floating toolbar client: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to update client: {e}")
 
 class FloatingMiniWindow(QMainWindow):
     def __init__(self, parent):
