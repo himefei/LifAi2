@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QComboBox, QPushButton, QFrame, QMessageBox,
-                            QTextEdit)
+                            QTextEdit, QApplication)
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from typing import Dict
 from pynput import mouse
@@ -20,6 +20,7 @@ class FloatingToolbarModule(QMainWindow):
     text_processed = pyqtSignal(str)
     selection_finished = pyqtSignal()
     show_error = pyqtSignal(str, str)
+    process_complete = pyqtSignal()
 
     def __init__(self, settings: Dict, ollama_client: OllamaClient):
         super().__init__()
@@ -36,6 +37,7 @@ class FloatingToolbarModule(QMainWindow):
         self.text_processed.connect(self._handle_processed_text)
         self.selection_finished.connect(self._reset_ui)
         self.show_error.connect(self._show_error_dialog)
+        self.process_complete.connect(self._reset_ui)
 
     def setup_ui(self):
         """设置界面"""
@@ -198,7 +200,7 @@ class FloatingToolbarModule(QMainWindow):
             self.selection_finished.emit()
 
     def _process_text_thread(self, text: str):
-        """Process text in a separate thread
+        """Process text in a separate thread with RAG support
         
         Args:
             text: Text to process
@@ -210,50 +212,102 @@ class FloatingToolbarModule(QMainWindow):
             current_prompt = self.prompt_combo.currentText()
             prompt_template = llm_prompts[current_prompt]
             
-            # Handle different client types
-            if isinstance(self.client, OllamaClient):  # Ollama client
-                # Build prompt with system and user messages
-                full_prompt = f"System: {prompt_template}\n\nUser: {text}"
-                response = self.client.generate_response(
-                    prompt=full_prompt,
-                    model=self.settings.get('model', 'mistral')
+            # Get relevant context from knowledge base
+            try:
+                doc_count = self.knowledge_base.get_document_count()
+                logger.info(f"Current knowledge base contains {doc_count} documents")
+                
+                logger.info(f"Attempting to retrieve context for text: {text[:100]}...")
+                context = self.knowledge_base.get_context(
+                    text,
+                    k=5,  # Retrieve top 5 most relevant documents
+                    threshold=0.3  # Similarity threshold
                 )
-                if response:
-                    processed_text = response.strip()
+                
+                if context:
+                    logger.info(f"Successfully retrieved context: {context[:200]}...")
                 else:
-                    raise Exception("Invalid response format from Ollama")
-            else:  # LM Studio client (OpenAI compatible)
-                messages = [
-                    {"role": "system", "content": prompt_template},
-                    {"role": "user", "content": text}
-                ]
-                response = self.client.chat_completion(
-                    messages=messages,
-                    model=self.settings.get('model', 'mistral'),
-                    temperature=0.7
-                )
-                if response and 'choices' in response and len(response['choices']) > 0:
-                    processed_text = response['choices'][0]['message']['content'].strip()
-                else:
-                    raise Exception("Invalid response format from LM Studio")
+                    logger.warning("No relevant context found in knowledge base")
+                    context = "No relevant context found in knowledge base."
+                    
+            except Exception as e:
+                logger.error(f"Error retrieving context: {e}")
+                context = "Error accessing knowledge base."
             
-            QApplication.instance().postEvent(
-                self,
-                CustomEvent(lambda: self._handle_processed_text(processed_text))
-            )
+            # Build system prompt with RAG context
+            system_prompt = f"""You are an AI assistant with access to a knowledge base that contains important reference information.
+
+Retrieved Context from Knowledge Base:
+{context}
+
+Instructions for Using Knowledge Base:
+1. Analyze the knowledge base context and identify relevant information
+2. When you find relevant information:
+   - Use it to better understand the context and requirements
+   - Ensure your response is consistent with the knowledge base
+3. For the rest of the text:
+   - Process it according to the task description
+   - Maintain consistency with the knowledge base information
+
+Remember to maintain the overall flow and style while incorporating knowledge base information."""
+            
+            try:
+                # Handle different client types
+                if isinstance(self.client, OllamaClient):  # Ollama client
+                    full_prompt = f"{system_prompt}\n\nUser Instructions: {prompt_template}\n\nText to Process: {text}"
+                    response = self.client.generate_response(
+                        prompt=full_prompt,
+                        model=self.settings.get('model', 'mistral')
+                    )
+                    if response:
+                        processed_text = response.strip()
+                        logger.info("Successfully generated response from Ollama")
+                        self.text_processed.emit(processed_text)
+                    else:
+                        raise Exception("Invalid response format from Ollama")
+                else:  # LM Studio client (OpenAI compatible)
+                    # Keep system message very concise
+                    system_message = "You are an AI assistant. Here is relevant context (if any):\n" + (context[:500] if context else "No context available.")
+                    
+                    # Keep user message focused and brief
+                    user_message = f"{prompt_template}\n\nText: {text[:1000]}"  # Limit text length
+                    
+                    messages = [
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": user_message}
+                    ]
+                    
+                    try:
+                        response = self.client.chat_completion(
+                            messages=messages,
+                            model=self.settings.get('model', 'mistral'),
+                            temperature=0.7
+                        )
+                        if response and 'choices' in response and len(response['choices']) > 0:
+                            processed_text = response['choices'][0]['message']['content'].strip()
+                            logger.info("Successfully generated response from LM Studio")
+                            self.text_processed.emit(processed_text)
+                        else:
+                            raise Exception("Invalid response format from LM Studio")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "GGML_ASSERT" in error_msg or "model has crashed" in error_msg:
+                            logger.error("LM Studio model crashed due to context length")
+                            self.show_error.emit("Error", "Text is too long for the model. Try with shorter text or less context.")
+                        else:
+                            logger.error(f"Error in LM Studio chat completion: {e}")
+                            self.show_error.emit("Error", f"LM Studio error: {str(e)}")
+                    
+            except Exception as e:
+                logger.error(f"Error generating response: {e}")
+                self.show_error.emit("Error", f"Failed to generate response: {str(e)}")
                 
         except Exception as e:
             logger.error(f"Error processing text: {e}")
-            QApplication.instance().postEvent(
-                self,
-                CustomEvent(lambda: self.show_error.emit("Error", f"Failed to process text: {e}"))
-            )
+            self.show_error.emit("Error", f"Failed to process text: {str(e)}")
         finally:
             self.processing = False
-            QApplication.instance().postEvent(
-                self,
-                CustomEvent(self._reset_ui)
-            )
+            self.process_complete.emit()
 
     def update_button_state(self):
         """更新按钮状态"""
@@ -267,15 +321,15 @@ class FloatingToolbarModule(QMainWindow):
             logger.error(f"Error updating button state: {e}")
 
     def _handle_processed_text(self, text: str):
-        """在主线程中处理处理后的文本"""
+        """Handle processed text in the main thread"""
         try:
             if not text:
                 logger.warning("Received empty processed text")
                 return
                 
-            logger.debug("Replacing selected text...")
+            logger.info("Replacing selected text...")
             self.clipboard.replace_selected_text(text)
-            logger.debug("Text replacement complete")
+            logger.info("Text replacement complete")
         except Exception as e:
             logger.error(f"Error replacing text: {e}")
             self.show_error.emit("Error", f"Error replacing text: {e}")
@@ -441,12 +495,13 @@ Please explicitly follow the task instructions and guidelines to complete the ta
                         temperature=0.7
                     )
                     if response and 'choices' in response and len(response['choices']) > 0:
-                        result = response['choices'][0]['message']['content'].strip()
+                        processed_text = response['choices'][0]['message']['content'].strip()
+                        logger.info("Successfully generated response from LM Studio")
+                        self.text_processed.emit(processed_text)
                     else:
                         raise Exception("Invalid response format from LM Studio")
-                
+                    
                 logger.info("Successfully processed text")
-                self.text_processed.emit(result)
             except Exception as e:
                 logger.error(f"Error calling LLM: {e}")
                 self.show_error.emit("Error", f"Error calling language model: {str(e)}")
