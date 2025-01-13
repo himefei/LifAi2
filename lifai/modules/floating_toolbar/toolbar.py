@@ -439,49 +439,38 @@ Remember to maintain the overall flow and style while incorporating knowledge ba
             self.selection_finished.emit()
             
     def _process_text_direct_thread(self, text: str):
-        """Process text directly in a separate thread (without using knowledge base)
-        
-        Args:
-            text: Text to process
-        """
+        """Process text directly without RAG in a separate thread"""
         try:
+            self.processing = True
+            
             # Get current prompt template
-            try:
-                current_prompt = self.prompt_combo.currentText()
-                logger.info(f"Using prompt template: {current_prompt}")
-                prompt_template = llm_prompts.get(current_prompt, "Please improve this text.")
-            except Exception as e:
-                logger.error(f"Error getting prompt template: {e}")
-                prompt_template = "Please improve this text."
+            current_prompt = self.prompt_combo.currentText()
+            prompt_template = llm_prompts[current_prompt]
+            
+            logger.info(f"Using prompt template: {current_prompt}")
             
             # Build system prompt
-            system_prompt = """You are an AI assistant that helps improve and enhance text."""
+            system_prompt = "You are an AI assistant that helps improve and enhance text."
             
             # Build user prompt
-            user_prompt = f"""Task Instructions and Guidelines:
-{prompt_template}
-
-Text to Process:
-{text}
-
-Please explicitly follow the task instructions and guidelines to complete the task."""
+            user_prompt = f"{prompt_template}\n\nText to Process: {text}\nPlease explicitly follow the task instructions and guidelines to complete the task."
             
-            # Call model for response
+            logger.info("Sending prompts to LLM:")
+            logger.info(f"System prompt: {system_prompt}")
+            logger.info(f"User prompt: {user_prompt}")
+            
             try:
-                logger.info("Sending prompts to LLM:")
-                logger.info(f"System prompt:\n{system_prompt}")
-                logger.info(f"User prompt:\n{user_prompt}")
-                
                 # Handle different client types
                 if isinstance(self.client, OllamaClient):  # Ollama client
-                    # Combine prompts for Ollama
                     full_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
                     response = self.client.generate_response(
                         prompt=full_prompt,
                         model=self.settings.get('model', 'mistral')
                     )
                     if response:
-                        result = response.strip()
+                        processed_text = response.strip()
+                        logger.info("Successfully generated response")
+                        self.text_processed.emit(processed_text)
                     else:
                         raise Exception("Invalid response format from Ollama")
                 else:  # LM Studio client (OpenAI compatible)
@@ -514,10 +503,11 @@ Please explicitly follow the task instructions and guidelines to complete the ta
         finally:
             try:
                 self.processing = False
+                self.process_complete.emit()
                 self.update_button_state()
             except Exception as e:
                 logger.error(f"Error in cleanup: {e}")
-                
+
     def update_button_state(self):
         """更新按钮状态"""
         try:

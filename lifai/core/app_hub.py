@@ -39,6 +39,8 @@ class LogWidget(QTextEdit):
         }.get(level, '#000000')          # 默认黑色
         
         self.append(f'<span style="color: {color}">{msg}</span>')
+        # Auto scroll to bottom
+        self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
 
 class LogHandler(logging.Handler):
     def __init__(self, widget: LogWidget):
