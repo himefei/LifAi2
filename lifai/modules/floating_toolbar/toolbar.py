@@ -56,11 +56,11 @@ class FloatingToolbarModule(QMainWindow):
         title_layout = QHBoxLayout(title_frame)
         title_layout.setContentsMargins(0, 0, 0, 0)
         
-        title_label = QLabel("✨ LifAi2")
+        title_label = QLabel("🤖 LifAi2")
         title_layout.addWidget(title_label)
         
         # 最小化按钮
-        min_btn = QPushButton("—")
+        min_btn = QPushButton("⎯")
         min_btn.setFixedWidth(30)
         min_btn.clicked.connect(self.minimize_toolbar)
         title_layout.addWidget(min_btn)
@@ -69,16 +69,21 @@ class FloatingToolbarModule(QMainWindow):
         
         # 创建提示选择下拉框
         self.prompt_combo = QComboBox()
-        self.prompt_combo.addItems(list(llm_prompts.keys()))  # 直接使用 llm_prompts 的键
+        self.prompt_combo.addItems(list(llm_prompts.keys()))
         main_layout.addWidget(self.prompt_combo)
         
+        # 创建测试按钮 (with RAG)
+        self.test_btn = QPushButton("🔍 Analyze Ticket (with RAG)")
+        self.test_btn.clicked.connect(self.start_test_enhancement)
+        main_layout.addWidget(self.test_btn)
+        
         # 创建增强按钮
-        self.enhance_btn = QPushButton("✨ Select & Enhance (with RAG)")
+        self.enhance_btn = QPushButton("💫 Enhance Text (with RAG)")
         self.enhance_btn.clicked.connect(self.start_enhancement)
         main_layout.addWidget(self.enhance_btn)
         
         # 创建直接处理按钮
-        self.direct_enhance_btn = QPushButton("✨ Select & Enhance (Direct)")
+        self.direct_enhance_btn = QPushButton("⚡ Quick Enhance (Direct)")
         self.direct_enhance_btn.clicked.connect(self.start_direct_enhancement)
         main_layout.addWidget(self.direct_enhance_btn)
         
@@ -313,9 +318,11 @@ Remember to maintain the overall flow and style while incorporating knowledge ba
         """更新按钮状态"""
         try:
             if not self.processing:
-                self.enhance_btn.setText("✨ Select & Enhance (with RAG)")
+                self.test_btn.setText("🔍 Analyze Ticket (with RAG)")
+                self.test_btn.setEnabled(True)
+                self.enhance_btn.setText("💫 Enhance Text (with RAG)")
                 self.enhance_btn.setEnabled(True)
-                self.direct_enhance_btn.setText("✨ Select & Enhance (Direct)")
+                self.direct_enhance_btn.setText("⚡ Quick Enhance (Direct)")
                 self.direct_enhance_btn.setEnabled(True)
         except Exception as e:
             logger.error(f"Error updating button state: {e}")
@@ -338,9 +345,11 @@ Remember to maintain the overall flow and style while incorporating knowledge ba
         """在主线程中重置 UI 状态"""
         try:
             self.waiting_for_selection = False
-            self.enhance_btn.setText("✨ Select & Enhance (with RAG)")
+            self.test_btn.setText("🔍 Analyze Ticket (with RAG)")
+            self.test_btn.setEnabled(True)
+            self.enhance_btn.setText("💫 Enhance Text (with RAG)")
             self.enhance_btn.setEnabled(True)
-            self.direct_enhance_btn.setText("✨ Select & Enhance (Direct)")
+            self.direct_enhance_btn.setText("⚡ Quick Enhance (Direct)")
             self.direct_enhance_btn.setEnabled(True)
             self.show()
         except Exception as e:
@@ -508,13 +517,191 @@ Remember to maintain the overall flow and style while incorporating knowledge ba
             except Exception as e:
                 logger.error(f"Error in cleanup: {e}")
 
+    def start_test_enhancement(self):
+        """Start test enhancement with RAG"""
+        if self.waiting_for_selection:
+            return
+            
+        self.test_btn.setText("Select text now...")
+        self.test_btn.setEnabled(False)
+        self.waiting_for_selection = True
+        
+        # Start selection in a separate thread
+        threading.Thread(target=self.wait_for_test_selection, daemon=True).start()
+
+    def wait_for_test_selection(self):
+        """Wait for text selection and process with test function"""
+        try:
+            self.mouse_down = False
+            self.is_selecting = False
+            
+            def on_click(x, y, button, pressed):
+                if button == mouse.Button.left:
+                    if pressed:
+                        self.mouse_down = True
+                        self.mouse_down_time = time.time()
+                        self.mouse_down_pos = (x, y)
+                        
+                        def check_long_press():
+                            time.sleep(0.5)
+                            if self.mouse_down:
+                                self.is_selecting = True
+                                logger.debug("Long press detected, user is selecting text...")
+                        
+                        threading.Thread(target=check_long_press, daemon=True).start()
+                        
+                    else:  # Mouse released
+                        if self.mouse_down and self.is_selecting:
+                            current_pos = (x, y)
+                            move_distance = ((current_pos[0] - self.mouse_down_pos[0]) ** 2 + 
+                                          (current_pos[1] - self.mouse_down_pos[1]) ** 2) ** 0.5
+                            
+                            if move_distance > 10:
+                                selected_text = self.clipboard.get_selected_text()
+                                if selected_text:
+                                    logger.debug(f"Selection complete, moved {move_distance:.1f}px: {selected_text[:100]}...")
+                                    self.waiting_for_selection = False
+                                    # Process text in a new thread
+                                    threading.Thread(
+                                        target=self._process_ticket_analysis_thread,  # Use new ticket analysis function
+                                        args=(selected_text,),
+                                        daemon=True
+                                    ).start()
+                                    return False
+                            else:
+                                logger.debug(f"Ignored selection without movement ({move_distance:.1f}px)")
+                                
+                        self.mouse_down = False
+                        self.is_selecting = False
+                        self.mouse_down_time = None
+                        self.mouse_down_pos = None
+            
+            with mouse.Listener(on_click=on_click) as listener:
+                listener.join()
+                
+        except Exception as e:
+            logger.error(f"Error waiting for selection: {e}")
+            self.show_error.emit("Error", f"Error waiting for selection: {e}")
+        finally:
+            self.selection_finished.emit()
+
+    def _process_ticket_analysis_thread(self, text: str):
+        """Process IT support ticket analysis in a separate thread"""
+        try:
+            self.processing = True
+            
+            # Get relevant context from knowledge base
+            try:
+                doc_count = self.knowledge_base.get_document_count()
+                logger.info(f"Current knowledge base contains {doc_count} documents")
+                
+                logger.info(f"Attempting to retrieve context for ticket: {text[:100]}...")
+                context = self.knowledge_base.get_context(
+                    text,
+                    k=5,  # Retrieve top 5 most relevant documents
+                    threshold=0.3  # Similarity threshold
+                )
+                
+                if context:
+                    logger.info(f"Successfully retrieved context: {context[:200]}...")
+                else:
+                    logger.warning("No relevant context found in knowledge base")
+                    context = "No relevant context found in knowledge base."
+                    
+            except Exception as e:
+                logger.error(f"Error retrieving context: {e}")
+                context = "Error accessing knowledge base."
+            
+            # Build specialized system prompt for IT ticket analysis
+            system_prompt = f"""You are an experienced IT Support Analyst. Your task is to analyze customer support tickets and identify missing troubleshooting steps.
+
+Retrieved Context from Knowledge Base:
+{context}
+
+Instructions:
+1. Analyze the customer's problem description
+2. Compare with the knowledge base context
+3. Identify what troubleshooting steps have already been taken
+4. List what essential troubleshooting steps are missing
+5. Format your response as follows:
+
+Original Ticket:
+[Original text]
+
+Steps Already Taken:
+1. [Step]
+2. [Step]
+...
+
+Missing Steps:
+1. [Step]
+2. [Step]
+...
+
+Remember to:
+- Use proper IT terminology
+- Be specific and clear in your recommendations
+- Prioritize steps based on standard IT troubleshooting practices
+- Consider both basic and advanced troubleshooting steps"""
+
+            try:
+                # Handle different client types
+                if isinstance(self.client, OllamaClient):  # Ollama client
+                    full_prompt = f"{system_prompt}\n\nTicket to Analyze: {text}"
+                    response = self.client.generate_response(
+                        prompt=full_prompt,
+                        model=self.settings.get('model', 'mistral')
+                    )
+                    if response:
+                        processed_text = response.strip()
+                        logger.info("Successfully generated ticket analysis")
+                        self.text_processed.emit(processed_text)
+                    else:
+                        raise Exception("Invalid response format from Ollama")
+                else:  # LM Studio client (OpenAI compatible)
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"Analyze this IT support ticket:\n\n{text}"}
+                    ]
+                    response = self.client.chat_completion(
+                        messages=messages,
+                        model=self.settings.get('model', 'mistral'),
+                        temperature=0.7
+                    )
+                    if response and 'choices' in response and len(response['choices']) > 0:
+                        processed_text = response['choices'][0]['message']['content'].strip()
+                        logger.info("Successfully generated ticket analysis from LM Studio")
+                        self.text_processed.emit(processed_text)
+                    else:
+                        raise Exception("Invalid response format from LM Studio")
+                    
+                logger.info("Successfully processed ticket analysis")
+            except Exception as e:
+                logger.error(f"Error calling LLM: {e}")
+                self.show_error.emit("Error", f"Error analyzing ticket: {str(e)}")
+
+        except Exception as e:
+            logger.error(f"Error processing ticket: {e}")
+            logger.exception(e)
+            self.show_error.emit("Error", f"Error processing ticket: {str(e)}")
+            
+        finally:
+            try:
+                self.processing = False
+                self.process_complete.emit()
+                self.update_button_state()
+            except Exception as e:
+                logger.error(f"Error in cleanup: {e}")
+
     def update_button_state(self):
         """更新按钮状态"""
         try:
             if not self.processing:
-                self.enhance_btn.setText("✨ Select & Enhance (with RAG)")
+                self.test_btn.setText("🔍 Analyze Ticket (with RAG)")
+                self.test_btn.setEnabled(True)
+                self.enhance_btn.setText("💫 Enhance Text (with RAG)")
                 self.enhance_btn.setEnabled(True)
-                self.direct_enhance_btn.setText("✨ Select & Enhance (Direct)")
+                self.direct_enhance_btn.setText("⚡ Quick Enhance (Direct)")
                 self.direct_enhance_btn.setEnabled(True)
         except Exception as e:
             logger.error(f"Error updating button state: {e}")

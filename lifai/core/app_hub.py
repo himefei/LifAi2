@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QLabel, QComboBox, QPushButton, QFrame, QTextEdit, QScrollArea,
                             QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QIcon, QPixmap, QFont
 import logging
 import os
 import sys
@@ -23,6 +24,28 @@ from lifai.modules.knowledge_manager.manager import KnowledgeManagerWindow
 # from lifai.modules.advagent.advagent_window import AdvAgentWindow
 
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def create_robot_icon():
+    """Create a robot icon using Windows' Segoe UI Emoji font"""
+    # Create a pixmap and fill it with a transparent background
+    pixmap = QPixmap(128, 128)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    
+    # Create a label with the robot emoji
+    label = QLabel("🤖")
+    
+    # Use Segoe UI Emoji font for better Windows emoji rendering
+    font = QFont("Segoe UI Emoji", 64)
+    label.setFont(font)
+    
+    # Center the emoji in the pixmap
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    label.setFixedSize(128, 128)
+    
+    # Render the label onto the pixmap
+    label.render(pixmap)
+    
+    return QIcon(pixmap)
 
 class LogWidget(QTextEdit):
     def __init__(self, parent=None):
@@ -92,6 +115,14 @@ class LifAi2Hub(QMainWindow):
     def __init__(self):
         super().__init__()
         
+        # Set application icon
+        self.setWindowIcon(create_robot_icon())
+        
+        # Remove default system icon and menu from title bar while keeping other window controls
+        self.setWindowFlags(Qt.WindowType.Window | 
+                          Qt.WindowType.WindowMinMaxButtonsHint | 
+                          Qt.WindowType.WindowCloseButtonHint)
+        
         # 初始化客户端
         self.ollama_client = OllamaClient()
         self.lmstudio_client = LMStudioClient()
@@ -112,7 +143,7 @@ class LifAi2Hub(QMainWindow):
         self.initialize_modules()
         
         # 设置窗口标题和大小
-        self.setWindowTitle("LifAi2 Control Hub")
+        self.setWindowTitle("LifAi2 Control Hub")  # Remove emoji from title since it's in the taskbar
         self.resize(600, 650)
         
         # 日志初始化
