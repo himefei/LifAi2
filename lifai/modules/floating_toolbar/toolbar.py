@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QComboBox, QPushButton, QFrame, QMessageBox,
-                            QTextEdit, QApplication)
+                            QTextEdit, QApplication, QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QColor
 from typing import Dict
@@ -46,13 +46,28 @@ class FloatingToolbarModule(QMainWindow):
         # 设置窗口属性
         self.setWindowTitle("LifAi2 Toolbar")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # Enable transparency for rounded corners
         
         # 创建主窗口部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(5)  # Add spacing between elements
+        main_layout.setSpacing(8)  # Increased spacing for modern look
+        
+        # Create main frame with rounded corners and shadow
+        main_frame = QFrame()
+        main_frame.setObjectName("mainFrame")
+        main_frame.setStyleSheet("""
+            QFrame#mainFrame {
+                background-color: white;
+                border-radius: 10px;
+                border: 1px solid #e0e0e0;
+            }
+        """)
+        frame_layout = QVBoxLayout(main_frame)
+        frame_layout.setContentsMargins(10, 10, 10, 10)
+        frame_layout.setSpacing(8)
         
         # 创建标题栏
         title_frame = QFrame()
@@ -60,24 +75,73 @@ class FloatingToolbarModule(QMainWindow):
         title_layout.setContentsMargins(0, 0, 0, 0)
         
         title_label = QLabel("🤖 LifAi2")
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #1976D2;
+                font-weight: bold;
+                font-size: 14px;
+            }
+        """)
         title_layout.addWidget(title_label)
         
         # 最小化按钮
         min_btn = QPushButton("⎯")
         min_btn.setFixedWidth(30)
+        min_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                color: #666;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background: #f0f0f0;
+                border-radius: 4px;
+            }
+        """)
         min_btn.clicked.connect(self.minimize_toolbar)
         title_layout.addWidget(min_btn)
         
-        main_layout.addWidget(title_frame)
+        frame_layout.addWidget(title_frame)
+        
+        # Add separator line
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #e0e0e0;")
+        frame_layout.addWidget(separator)
         
         # 创建提示选择下拉框
         self.prompt_combo = QComboBox()
         self.prompt_combo.addItems(list(llm_prompts.keys()))
-        main_layout.addWidget(self.prompt_combo)
+        self.prompt_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                padding: 5px;
+                background: white;
+            }
+            QComboBox:hover {
+                border: 1px solid #1976D2;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border: none;
+            }
+        """)
+        frame_layout.addWidget(self.prompt_combo)
         
         # Add progress label with a frame
         progress_frame = QFrame()
-        progress_frame.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        progress_frame.setStyleSheet("""
+            QFrame {
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                background: white;
+            }
+        """)
         progress_layout = QHBoxLayout(progress_frame)
         progress_layout.setContentsMargins(5, 2, 5, 2)
         
@@ -94,7 +158,7 @@ class FloatingToolbarModule(QMainWindow):
             }
         """)
         progress_layout.addWidget(self.progress_label)
-        main_layout.addWidget(progress_frame)
+        frame_layout.addWidget(progress_frame)
         
         # Setup breathing animation
         self.breathing_timer = QTimer()
@@ -104,8 +168,35 @@ class FloatingToolbarModule(QMainWindow):
         
         # 创建处理按钮
         self.process_btn = QPushButton("✨ Process Selected Text")
+        self.process_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1976D2;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1565C0;
+            }
+            QPushButton:disabled {
+                background-color: #90CAF9;
+            }
+        """)
         self.process_btn.clicked.connect(self.start_processing)
-        main_layout.addWidget(self.process_btn)
+        frame_layout.addWidget(self.process_btn)
+        
+        # Add main frame to main layout
+        main_layout.addWidget(main_frame)
+        
+        # Add shadow effect
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20)
+        shadow.setXOffset(0)
+        shadow.setYOffset(2)
+        shadow.setColor(QColor(0, 0, 0, 50))
+        main_frame.setGraphicsEffect(shadow)
         
         # Connect progress signal
         self.progress_updated.connect(self._update_progress)
