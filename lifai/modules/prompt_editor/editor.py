@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QLineEdit, QTextEdit, QPushButton, QListWidget,
-                            QFrame, QMessageBox, QFileDialog)
+                            QFrame, QMessageBox, QFileDialog, QCheckBox)
 from PyQt6.QtCore import Qt
 from typing import Dict, Callable
 import json
@@ -15,7 +15,7 @@ class PromptEditorWindow(QMainWindow):
     def __init__(self, settings: Dict):
         super().__init__()
         self.settings = settings
-        self.prompts_file = os.path.join(os.path.dirname(__file__), '../../config/saved_prompts.py')
+        self.prompts_file = os.path.join(os.path.dirname(__file__), '../../config/prompts.py')
         
         # Load saved prompts or use defaults
         self.prompts_data = {
@@ -78,47 +78,61 @@ class PromptEditorWindow(QMainWindow):
         name_layout.addWidget(QLabel("Name:"))
         self.name_entry = QLineEdit()
         name_layout.addWidget(self.name_entry)
+        
+        # Add RAG checkbox
+        self.rag_checkbox = QCheckBox("Use RAG (Retrieval)")
+        name_layout.addWidget(self.rag_checkbox)
+        
         right_layout.addLayout(name_layout)
+        
+        # Help section for placeholders
+        help_frame = QFrame()
+        help_frame.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        help_layout = QVBoxLayout(help_frame)
+        
+        help_label = QLabel("""<b>Available Placeholders:</b>
+• {text} - The selected text to process
+• {context} - Retrieved knowledge from RAG system
+
+<b>Example Prompt Structure:</b>
+You are an AI assistant. Here is relevant context:
+{context}
+
+Please process this text:
+{text}
+
+[Your additional instructions here]""")
+        help_label.setWordWrap(True)
+        help_layout.addWidget(help_label)
+        right_layout.addWidget(help_frame)
         
         # Template editor
         right_layout.addWidget(QLabel("Prompt Template:"))
         self.template_text = QTextEdit()
         right_layout.addWidget(self.template_text)
         
-        # Buttons
-        buttons_layout = QHBoxLayout()
-        
-        save_btn = QPushButton("Save Prompt")
-        save_btn.clicked.connect(self.save_prompt)
-        buttons_layout.addWidget(save_btn)
-        
-        delete_btn = QPushButton("Delete Prompt")
-        delete_btn.clicked.connect(self.delete_prompt)
-        buttons_layout.addWidget(delete_btn)
-        
+        # Add save and delete buttons
+        button_layout = QHBoxLayout()
         new_btn = QPushButton("New Prompt")
         new_btn.clicked.connect(self.new_prompt)
-        buttons_layout.addWidget(new_btn)
+        save_btn = QPushButton("Save")
+        save_btn.clicked.connect(self.save_prompt)
+        delete_btn = QPushButton("Delete")
+        delete_btn.clicked.connect(self.delete_prompt)
+        button_layout.addWidget(new_btn)
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(delete_btn)
+        right_layout.addLayout(button_layout)
         
-        export_btn = QPushButton("Export")
-        export_btn.clicked.connect(self.export_prompts)
-        buttons_layout.addWidget(export_btn)
-        
-        import_btn = QPushButton("Import")
-        import_btn.clicked.connect(self.import_prompts)
-        buttons_layout.addWidget(import_btn)
-        
-        right_layout.addLayout(buttons_layout)
-        
-        # Apply changes button
+        # Add status label and apply changes button
+        status_layout = QHBoxLayout()
+        self.status_label = QLabel("")
         self.apply_btn = QPushButton("Apply Changes")
         self.apply_btn.clicked.connect(self.apply_changes)
         self.apply_btn.setEnabled(False)
-        right_layout.addWidget(self.apply_btn)
-        
-        # Status label
-        self.status_label = QLabel("")
-        right_layout.addWidget(self.status_label)
+        status_layout.addWidget(self.status_label)
+        status_layout.addWidget(self.apply_btn)
+        right_layout.addLayout(status_layout)
         
         main_layout.addWidget(right_panel)
         
@@ -132,15 +146,24 @@ class PromptEditorWindow(QMainWindow):
             return
             
         name = current.text()
-        template = self.prompts_data['templates'].get(name, '')
+        prompt_data = self.prompts_data['templates'].get(name, {})
+        
+        if isinstance(prompt_data, str):  # Handle legacy format
+            template = prompt_data
+            use_rag = False
+        else:
+            template = prompt_data.get('template', '')
+            use_rag = prompt_data.get('use_rag', False)
         
         self.name_entry.setText(name)
         self.template_text.setPlainText(template)
+        self.rag_checkbox.setChecked(use_rag)
 
     def new_prompt(self):
         """Clear the editor for a new prompt"""
         self.name_entry.clear()
         self.template_text.clear()
+        self.rag_checkbox.setChecked(False)
         self.prompts_list.clearSelection()
 
     def show_error(self, message: str):
@@ -168,8 +191,11 @@ class PromptEditorWindow(QMainWindow):
             return
             
         try:
-            # 更新提示词
-            self.prompts_data['templates'][name] = prompt
+            # 更新提示词，包含RAG设置
+            self.prompts_data['templates'][name] = {
+                'template': prompt,
+                'use_rag': self.rag_checkbox.isChecked()
+            }
             
             # 更新列表
             self.refresh_list()
@@ -218,6 +244,10 @@ class PromptEditorWindow(QMainWindow):
             llm_prompts.clear()
             llm_prompts.update(self.prompts_data['templates'])
             
+            # Update improvement_options with just the prompt names
+            improvement_options.clear()
+            improvement_options.extend(list(llm_prompts.keys()))
+            
             # Notify all registered callbacks with the updated prompt keys
             prompt_keys = list(llm_prompts.keys())
             for callback in self.update_callbacks:
@@ -242,9 +272,21 @@ class PromptEditorWindow(QMainWindow):
     def save_prompts_to_file(self):
         """保存所有提示词到文件"""
         try:
-            content = "llm_prompts = " + json.dumps(self.prompts_data['templates'], indent=4, ensure_ascii=False)
+            # Convert prompts to proper Python format
+            content = ["llm_prompts = {"]
+            for name, data in self.prompts_data['templates'].items():
+                if isinstance(data, dict):
+                    content.append(f'    "{name}": {{')
+                    content.append(f'        "template": """{data["template"]}""",')
+                    content.append(f'        "use_rag": {str(data["use_rag"])}')
+                    content.append('    },')
+                else:  # Legacy string format
+                    content.append(f'    "{name}": """{data}""",')
+            content.append("}")
+            
+            # Write to file
             with open(self.prompts_file, 'w', encoding='utf-8') as f:
-                f.write(content)
+                f.write('\n'.join(content))
             logger.info("Prompts saved to file successfully")
         except Exception as e:
             logger.error(f"Error saving prompts to file: {e}")
