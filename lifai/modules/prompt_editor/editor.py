@@ -1,15 +1,19 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                            QLabel, QLineEdit, QTextEdit, QPushButton, QListWidget,
+                            QLabel, QLineEdit, QPlainTextEdit, QPushButton, QListWidget,
                             QFrame, QMessageBox, QFileDialog, QCheckBox)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont
 from typing import Dict, Callable
 import json
 import os
 from datetime import datetime
 from lifai.utils.logger_utils import get_module_logger
-from lifai.config.prompts import improvement_options, llm_prompts
+from lifai.config.prompts import llm_prompts
 
 logger = get_module_logger(__name__)
+
+# Get available prompts from llm_prompts
+improvement_options = list(llm_prompts.keys())
 
 class PromptEditorWindow(QMainWindow):
     def __init__(self, settings: Dict):
@@ -92,11 +96,23 @@ class PromptEditorWindow(QMainWindow):
         
         help_label = QLabel("""<b>Available Placeholders:</b>
 • {text} - The selected text to process
-• {context} - Retrieved knowledge from RAG system
+• {context} - All retrieved knowledge combined
+• {context1} - Knowledge from first relevant slot
+• {context2} - Knowledge from second relevant slot
+• {context3} - Knowledge from third relevant slot
+...and so on for each knowledge slot
 
 <b>Example Prompt Structure:</b>
 You are an AI assistant. Here is relevant context:
-{context}
+
+Technical knowledge:
+{context1}
+
+Product knowledge:
+{context2}
+
+Support history:
+{context3}
 
 Please process this text:
 {text}
@@ -108,7 +124,11 @@ Please process this text:
         
         # Template editor
         right_layout.addWidget(QLabel("Prompt Template:"))
-        self.template_text = QTextEdit()
+        self.template_text = QPlainTextEdit()
+        self.template_text.setPlaceholderText("Enter your prompt template here...\nUse {text} for selected text\nUse {context1}, {context2}, etc. for specific knowledge slots\nOr use {context} for all knowledge combined")
+        self.template_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        font = QFont("Consolas")  # Use monospace font for better readability
+        self.template_text.setFont(font)
         right_layout.addWidget(self.template_text)
         
         # Add save and delete buttons
@@ -167,11 +187,11 @@ Please process this text:
         self.prompts_list.clearSelection()
 
     def show_error(self, message: str):
-        """显示错误消息对话框"""
+        """Show error message dialog"""
         QMessageBox.critical(self, "Error", message)
         
     def validate_prompt(self, prompt: str) -> bool:
-        """验证提示词是否有效"""
+        """Validate if prompt is valid"""
         if not prompt or len(prompt.strip()) < 10:
             self.show_error("Prompt is too short")
             return False
@@ -179,7 +199,7 @@ Please process this text:
         return True
 
     def save_prompt(self):
-        """保存当前提示词"""
+        """Save current prompt"""
         name = self.name_entry.text().strip()
         prompt = self.template_text.toPlainText().strip()
         
@@ -191,16 +211,16 @@ Please process this text:
             return
             
         try:
-            # 更新提示词，包含RAG设置
+            # Update prompt with RAG setting
             self.prompts_data['templates'][name] = {
                 'template': prompt,
                 'use_rag': self.rag_checkbox.isChecked()
             }
             
-            # 更新列表
+            # Update list
             self.refresh_list()
             
-            # 标记需要应用更改
+            # Mark changes as unsaved
             self.mark_unsaved_changes()
             
             QMessageBox.information(self, "Success", "Prompt saved successfully! Click 'Apply Changes' to update all modules.")
@@ -270,7 +290,7 @@ Please process this text:
             self.show_error(f"Failed to apply changes: {e}")
 
     def save_prompts_to_file(self):
-        """保存所有提示词到文件"""
+        """Save all prompts to file"""
         try:
             # Convert prompts to proper Python format
             content = ["llm_prompts = {"]
@@ -283,6 +303,8 @@ Please process this text:
                 else:  # Legacy string format
                     content.append(f'    "{name}": """{data}""",')
             content.append("}")
+            content.append("\n# List of available prompt options")
+            content.append("improvement_options = list(llm_prompts.keys())")
             
             # Write to file
             with open(self.prompts_file, 'w', encoding='utf-8') as f:
@@ -291,49 +313,6 @@ Please process this text:
         except Exception as e:
             logger.error(f"Error saving prompts to file: {e}")
             raise
-
-    def export_prompts(self):
-        try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'prompts_export_{timestamp}.py'
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write("llm_prompts = {\n")
-                for name, template in self.prompts_data['templates'].items():
-                    f.write(f"    \"{name}\": \"\"\"{template}\"\"\",\n")
-                f.write("}\n\n")
-                f.write("# Get options from llm_prompts keys\n")
-                f.write("improvement_options = list(llm_prompts.keys())\n")
-            QMessageBox.information(self, "Success", f"Prompts exported to {filename}")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to export: {e}")
-
-    def import_prompts(self):
-        try:
-            filename, _ = QFileDialog.getOpenFileName(
-                self,
-                "Import Prompts",
-                "",
-                "Python files (*.py);;JSON files (*.json)"
-            )
-            if filename:
-                if filename.endswith('.json'):
-                    with open(filename) as f:
-                        data = json.load(f)
-                        self.prompts_data = {'templates': data['templates']}
-                else:  # Python file
-                    namespace = {}
-                    with open(filename) as f:
-                        exec(f.read(), namespace)
-                    self.prompts_data = {'templates': namespace.get('llm_prompts', {})}
-                
-                if self.prompts_data['templates']:
-                    self.refresh_list()
-                    self.notify_prompt_updates()
-                    QMessageBox.information(self, "Success", "Prompts imported successfully")
-                else:
-                    raise ValueError("Invalid prompts file format")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to import: {e}")
 
     def refresh_list(self):
         self.prompts_list.clear()

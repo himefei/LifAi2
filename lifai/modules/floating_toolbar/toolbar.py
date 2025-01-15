@@ -18,16 +18,17 @@ logger = get_module_logger(__name__)
 
 class FloatingToolbarModule(QMainWindow):
     # Define signals at class level
-    text_processed = pyqtSignal(str)
+    text_processed = pyqtSignal(str)  # Signal for processed text
     selection_finished = pyqtSignal()
-    show_error = pyqtSignal(str, str)
-    process_complete = pyqtSignal()
+    show_error = pyqtSignal(str)  # Signal for error messages
+    process_complete = pyqtSignal()  # Signal for process completion
     progress_updated = pyqtSignal(int)  # New signal for progress updates
 
     def __init__(self, settings: Dict, ollama_client: OllamaClient):
         super().__init__()
         self.settings = settings
         self.client = ollama_client  # Rename to be more generic
+        self.client_type = "ollama" if isinstance(ollama_client, OllamaClient) else "lmstudio"
         self.processing = False
         self.clipboard = ClipboardManager()
         self.knowledge_base = KnowledgeBase()  # Initialize knowledge base
@@ -139,34 +140,34 @@ class FloatingToolbarModule(QMainWindow):
             QFrame {
                 border: 1px solid #e0e0e0;
                 border-radius: 5px;
-                background: white;
+                background: #f5f5f5;
+                min-height: 30px;
             }
         """)
         progress_layout = QHBoxLayout(progress_frame)
         progress_layout.setContentsMargins(5, 2, 5, 2)
         
-        self.progress_label = QLabel("")
-        self.progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.progress_label = QLabel("🚀 Ready")
         self.progress_label.setStyleSheet("""
             QLabel {
                 color: #1976D2;
-                font-weight: bold;
-                min-height: 20px;
-                background-color: #f5f5f5;
-                border-radius: 3px;
-                padding: 2px;
+                padding: 5px;
+                min-width: 120px;
+                background: #f5f5f5;
+                border-radius: 5px;
             }
         """)
+        self.progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         progress_layout.addWidget(self.progress_label)
         frame_layout.addWidget(progress_frame)
         
-        # Setup breathing and rainbow animation
+        # Breathing animation setup
         self.breathing_timer = QTimer()
         self.breathing_timer.timeout.connect(self._update_breathing)
-        self.breathing_timer.setInterval(16)  # ~60fps for smoother animation
-        self.breathing_in = True
-        self.breathing_value = 245
-        self.gradient_position = 0.0  # Position for gradient animation
+        self.breathing_value = 255
+        self.breathing_increasing = False
+        self.gradient_position = 0.0
+        self.breathing_timer.start(16)  # ~60fps
         
         # 创建处理按钮
         self.process_btn = QPushButton("✨ Process Selected Text")
@@ -321,118 +322,74 @@ class FloatingToolbarModule(QMainWindow):
             self.selection_finished.emit()
 
     def _process_text_thread(self, text: str):
-        """Process text in a separate thread using the selected prompt template"""
+        """Process text in a separate thread"""
         try:
             self.processing = True
-            self.progress_updated.emit(0)  # Start progress
+            self.progress_label.setText("🔄 Processing")
+            self.process_complete.emit()  # Signal start of processing
             
             # Get current prompt template
-            current_prompt = self.prompt_combo.currentText()
-            prompt_data = llm_prompts[current_prompt]
+            prompt_name = self.prompt_combo.currentText()
+            prompt_info = llm_prompts.get(prompt_name, llm_prompts['Default Enhance'])
+            template = prompt_info['template']
+            use_rag = prompt_info.get('use_rag', False)
             
-            self.progress_updated.emit(10)  # Got prompt
-            
-            # Check if prompt is in new format
-            if isinstance(prompt_data, dict):
-                prompt_template = prompt_data['template']
-                use_rag = prompt_data.get('use_rag', False)
-            else:  # Legacy format
-                prompt_template = prompt_data
-                use_rag = False
-            
-            self.progress_updated.emit(20)  # Checked format
-            
-            context = ""
-            # Only retrieve context if RAG is enabled for this prompt
-            if use_rag:
-                try:
-                    doc_count = self.knowledge_base.get_document_count()
-                    logger.info(f"Current knowledge base contains {doc_count} documents")
-                    
-                    self.progress_updated.emit(30)  # Starting RAG
-                    
-                    logger.info(f"Attempting to retrieve context for text: {text[:100]}...")
-                    context = self.knowledge_base.get_context(
-                        text,
-                        k=5,  # Retrieve top 5 most relevant documents
-                        threshold=0.3  # Similarity threshold
-                    )
-                    
-                    self.progress_updated.emit(50)  # Got RAG context
-                    
-                    if context:
-                        logger.info(f"Successfully retrieved context: {context[:200]}...")
-                    else:
-                        logger.warning("No relevant context found in knowledge base")
-                        context = "No relevant context found in knowledge base."
-                        
-                except Exception as e:
-                    logger.error(f"Error retrieving context: {e}")
-                    context = "Error accessing knowledge base."
-            else:
-                self.progress_updated.emit(50)  # Skip RAG progress
-            
-            # Replace placeholders in the prompt template
-            formatted_prompt = prompt_template.format(
-                text=text,
-                context=context
-            )
-            
-            self.progress_updated.emit(60)  # Formatted prompt
-            
-            try:
-                # Handle different client types
-                if isinstance(self.client, OllamaClient):  # Ollama client
-                    self.progress_updated.emit(70)  # Starting LLM
-                    response = self.client.generate_response(
-                        prompt=formatted_prompt,
-                        model=self.settings.get('model', 'mistral')
-                    )
-                    if response:
-                        processed_text = response.strip()
-                        logger.info("Successfully generated response")
-                        self.progress_updated.emit(90)  # Got response
-                        self.text_processed.emit(processed_text)
-                    else:
-                        raise Exception("Invalid response format from Ollama")
-                else:  # LM Studio client (OpenAI compatible)
-                    self.progress_updated.emit(70)  # Starting LLM
-                    messages = [
-                        {"role": "system", "content": "You are an AI assistant that helps process text."},
-                        {"role": "user", "content": formatted_prompt}
-                    ]
-                    response = self.client.chat_completion(
-                        messages=messages,
-                        model=self.settings.get('model', 'mistral'),
-                        temperature=0.7
-                    )
-                    if response and 'choices' in response and len(response['choices']) > 0:
-                        processed_text = response['choices'][0]['message']['content'].strip()
-                        logger.info("Successfully generated response from LM Studio")
-                        self.progress_updated.emit(90)  # Got response
-                        self.text_processed.emit(processed_text)
-                    else:
-                        raise Exception("Invalid response format from LM Studio")
-                    
-                logger.info("Successfully processed text")
-                self.progress_updated.emit(100)  # Complete
-            except Exception as e:
-                logger.error(f"Error calling LLM: {e}")
-                self.show_error.emit("Error", f"Error calling language model: {str(e)}")
+            # Get text from clipboard
+            text = QApplication.clipboard().text()
+            if not text:
+                self.show_error.emit("No text selected")
+                return
 
-        except Exception as e:
-            logger.error(f"Error processing text: {e}")
-            logger.exception(e)
-            self.show_error.emit("Error", f"Error processing text: {str(e)}")
+            # Initialize context dictionary
+            contexts = {}
             
+            # If RAG is enabled, get context from each slot
+            if use_rag:
+                kb = KnowledgeBase()
+                slot_names = kb.get_slot_names()
+                
+                # Get context for each slot if placeholder exists
+                for i, slot_name in enumerate(slot_names, 1):
+                    context_key = f"context{i}"
+                    if f"{{{context_key}}}" in template:
+                        context = kb.get_context(text, slot_name=slot_name)
+                        contexts[context_key] = context if context else "No relevant context found."
+                
+                # Handle generic {context} placeholder
+                if "{context}" in template:
+                    context = kb.get_context(text)  # Get context from all slots
+                    contexts["context"] = context if context else "No relevant context found."
+
+            # Format prompt with text and contexts
+            prompt = template.format(text=text, **contexts)
+
+            # Process with LLM
+            if self.client_type == "ollama":
+                response = self.client.generate_response(
+                    prompt=prompt,
+                    model=self.settings.get('model', 'mistral')
+                )
+                processed_text = response
+            else:  # LM Studio
+                messages = [{"role": "system", "content": prompt}]
+                response = self.client.chat_completion(
+                    messages=messages,
+                    model=self.settings.get('model', 'mistral'),
+                    temperature=0.7
+                )
+                processed_text = response['choices'][0]['message']['content']
+
+            # Emit processed text
+            self.text_processed.emit(processed_text)
+            
+        except Exception as e:
+            error_msg = f"Error processing text: {str(e)}"
+            logger.error(error_msg)
+            self.show_error.emit(error_msg)
         finally:
-            try:
-                self.processing = False
-                self.process_complete.emit()
-                self.update_button_state()
-                self.progress_updated.emit(-1)  # Clear progress
-            except Exception as e:
-                logger.error(f"Error in cleanup: {e}")
+            self.processing = False
+            self.progress_label.setText("🚀 Ready")
+            self.process_complete.emit()
 
     def update_button_state(self):
         """更新按钮状态"""
@@ -466,7 +423,7 @@ class FloatingToolbarModule(QMainWindow):
             logger.info("Text replacement complete")
         except Exception as e:
             logger.error(f"Error replacing text: {e}")
-            self.show_error.emit("Error", f"Error replacing text: {e}")
+            self._show_error_dialog(f"Error replacing text: {e}")
 
     def _reset_ui(self):
         """在主线程中重置 UI 状态"""
@@ -478,10 +435,10 @@ class FloatingToolbarModule(QMainWindow):
         except Exception as e:
             logger.error(f"Error resetting UI: {e}")
 
-    def _show_error_dialog(self, title: str, message: str):
-        """在主线程中显示错误对话框"""
+    def _show_error_dialog(self, message: str):
+        """Show error message dialog"""
         try:
-            QMessageBox.critical(self, title, message)
+            QMessageBox.critical(self, "Error", message)
         except Exception as e:
             logger.error(f"Error showing error dialog: {e}")
 
@@ -537,97 +494,94 @@ class FloatingToolbarModule(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to update client: {e}")
 
     def _update_breathing(self):
-        """Update the breathing and rainbow gradient animation effect"""
-        # Update breathing effect
-        if self.breathing_in:
-            self.breathing_value = max(235, self.breathing_value - 0.5)  # Even slower breathing
-            if self.breathing_value <= 235:
-                self.breathing_in = False
+        """Update the breathing animation effect with rainbow colors"""
+        if not hasattr(self, 'processing'):
+            self.processing = False
+            
+        if self.processing:
+            # Update gradient position for rainbow effect
+            self.gradient_position = (self.gradient_position + 0.005) % 1.0
+            
+            # Calculate rainbow colors
+            hue = self.gradient_position * 360
+            r, g, b = self._hsl_to_rgb(hue, 1.0, 0.5)
+            
+            # Update breathing value
+            if self.breathing_increasing:
+                self.breathing_value = min(255, self.breathing_value + 0.5)
+                if self.breathing_value >= 255:
+                    self.breathing_increasing = False
+            else:
+                self.breathing_value = max(100, self.breathing_value - 0.5)
+                if self.breathing_value <= 100:
+                    self.breathing_increasing = True
+            
+            # Apply brightness to colors
+            r, g, b = self._adjust_brightness(r, g, b)
+            
+            # Create gradient background with fixed dimensions
+            gradient_style = f"""
+                QLabel {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 rgb({r}, {g}, {b}),
+                        stop:1 rgb({r//2}, {g//2}, {b//2}));
+                    border-radius: 5px;
+                    color: white;
+                    padding: 5px;
+                    min-width: 120px;
+                    min-height: 20px;
+                    height: 30px;
+                    width: 120px;
+                    margin: 0px;
+                }}
+            """
+            self.progress_label.setStyleSheet(gradient_style)
         else:
-            self.breathing_value = min(245, self.breathing_value + 0.5)  # Even slower breathing
-            if self.breathing_value >= 245:
-                self.breathing_in = True
+            # Reset to default style when not processing
+            self.progress_label.setStyleSheet("""
+                QLabel {
+                    color: #1976D2;
+                    padding: 5px;
+                    min-width: 120px;
+                    min-height: 20px;
+                    height: 30px;
+                    width: 120px;
+                    margin: 0px;
+                    background: #f5f5f5;
+                    border-radius: 5px;
+                }
+            """)
+    
+    def _hsl_to_rgb(self, h, s, l):
+        """Convert HSL color values to RGB"""
+        c = (1 - abs(2 * l - 1)) * s
+        x = c * (1 - abs((h / 60) % 2 - 1))
+        m = l - c/2
         
-        # Update gradient position (complete cycle in 5 seconds)
-        self.gradient_position = (self.gradient_position + 0.012) % 1.0  # 16ms * ~312 steps = 5000ms
-        
-        def get_rainbow_color(pos):
-            """Get rainbow color for position (0-1)"""
-            pos = pos % 1.0
-            # Use more color stops for smoother transitions
-            if pos < 0.166:  # Red to Yellow
-                r = 255
-                g = int(pos * 6 * 255)
-                b = 0
-            elif pos < 0.332:  # Yellow to Green
-                r = int((0.332 - pos) * 6 * 255)
-                g = 255
-                b = 0
-            elif pos < 0.498:  # Green to Cyan
-                r = 0
-                g = 255
-                b = int((pos - 0.332) * 6 * 255)
-            elif pos < 0.664:  # Cyan to Blue
-                r = 0
-                g = int((0.664 - pos) * 6 * 255)
-                b = 255
-            elif pos < 0.83:  # Blue to Purple
-                r = int((pos - 0.664) * 6 * 255)
-                g = 0
-                b = 255
-            else:  # Purple to Red
-                r = 255
-                g = 0
-                b = int((1.0 - pos) * 6 * 255)
-            return r, g, b
-
-        def adjust_brightness(r, g, b):
-            """Adjust RGB color brightness"""
-            brightness = self.breathing_value / 255
-            return (
-                int(r * brightness),
-                int(g * brightness),
-                int(b * brightness)
-            )
-        
-        # Calculate colors for gradient (use 5 points for smoother transition)
-        positions = [
-            self.gradient_position,
-            (self.gradient_position + 0.2) % 1.0,
-            (self.gradient_position + 0.4) % 1.0,
-            (self.gradient_position + 0.6) % 1.0,
-            (self.gradient_position + 0.8) % 1.0
-        ]
-        
-        colors = [get_rainbow_color(pos) for pos in positions]
-        
-        # Apply brightness based on breathing
-        colors = [adjust_brightness(*c) for c in colors]
-        
-        # Create smooth gradient effect with more color stops
-        gradient_stops = ", ".join([
-            f"stop: {i/4} rgb({r}, {g}, {b})"
-            for i, (r, g, b) in enumerate(colors)
-        ])
-        
-        gradient = f"""
-            background: qlineargradient(
-                x1: 0, y1: 0, x2: 1, y2: 0,
-                {gradient_stops}
-            );
-        """
-        
-        self.progress_label.setStyleSheet(f"""
-            QLabel {{
-                color: #1976D2;
-                font-weight: bold;
-                min-height: 20px;
-                {gradient}
-                border-radius: 3px;
-                padding: 2px;
-            }}
-        """)
-
+        if 0 <= h < 60:
+            r, g, b = c, x, 0
+        elif 60 <= h < 120:
+            r, g, b = x, c, 0
+        elif 120 <= h < 180:
+            r, g, b = 0, c, x
+        elif 180 <= h < 240:
+            r, g, b = 0, x, c
+        elif 240 <= h < 300:
+            r, g, b = x, 0, c
+        else:
+            r, g, b = c, 0, x
+            
+        return (int((r + m) * 255), int((g + m) * 255), int((b + m) * 255))
+    
+    def _adjust_brightness(self, r, g, b):
+        """Adjust RGB color brightness"""
+        brightness = self.breathing_value / 255
+        return (
+            int(r * brightness),
+            int(g * brightness),
+            int(b * brightness)
+        )
+    
     def _update_progress(self, progress: int):
         """Update the progress label"""
         if progress == -1:  # Clear progress

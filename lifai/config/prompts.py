@@ -30,7 +30,11 @@ Here is your input text : {text}""",
         "template": """You are a professional text enhancer AI, you will use the knowledage retrieved from RAG system from here (context), and then use it to improve the text below :{text}""",
         "use_rag": True
     },
+    "rag 3": {
+        "template": """You are a professional text enhancer AI, you will use the knowledage retrieved from RAG system from {context1}{context2}{context3}, and then use them to improve the text below :{text}""",
+        "use_rag": True
+    },
 }
 
-# Get options from llm_prompts keys
+# List of available prompt options
 improvement_options = list(llm_prompts.keys())

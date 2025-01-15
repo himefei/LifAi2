@@ -25,63 +25,384 @@ class KnowledgeBase:
         return cls._instance
     
     def __init__(self, base_dir: str = "knowledge_base"):
-        """初始化知识库
+        """Initialize the knowledge base with multiple slots
         
         Args:
-            base_dir: 知识库基础目录
+            base_dir: Base directory for knowledge base
         """
-        # 确保只初始化一次
+        # Ensure singleton initialization
         if KnowledgeBase._initialized:
             return
             
         KnowledgeBase._initialized = True
         
         self.base_dir = base_dir
-        self.docs_dir = os.path.join(base_dir, "docs")
-        self.index_dir = os.path.join(base_dir, "index")
+        self.slots = {}  # Dict to store multiple knowledge slots
+        self.dimension = 1024  # bge-large-en-v1.5 dimension
         
-        # 确保目录存在
-        os.makedirs(self.docs_dir, exist_ok=True)
-        os.makedirs(self.index_dir, exist_ok=True)
-        
-        # 初始化 embedding 模型
+        # Initialize embedding model
         self.model = SentenceTransformer('BAAI/bge-large-en-v1.5')
         
-        # 初始化 FAISS 索引
-        self.dimension = 1024  # bge-large-en-v1.5 的维度
-        # 对于小数据集，使用简单的 IndexFlatL2
-        self.index = faiss.IndexFlatL2(self.dimension)
-        self.use_ivf = False  # 标记是否使用 IVF 索引
-        
-        # 存储文档内容和元数据
-        self.documents = []
-        self.metadata = []
-        
-        # 加载现有索引和文档
-        self._load_index()
-        
+        # Create default slots
+        self.slot_names = ["General", "Technical", "Product", "Support", "Custom"]
+        for slot in self.slot_names:
+            self._init_slot(slot)
+            
         logger.info(f"Initialized knowledge base at {base_dir}")
         logger.info(f"Using model: BAAI/bge-large-en-v1.5")
         logger.info(f"Vector dimension: {self.dimension}")
-        logger.info(f"Current documents count: {len(self.documents)}")
-        
-    def reset(self):
-        """重置单例状态，主要用于测试"""
-        KnowledgeBase._instance = None
-        KnowledgeBase._initialized = False
-    
-    def _split_text(self, text: str, chunk_size: int = 256, overlap: int = 100) -> List[str]:
-        """智能分割文本，保留缩写词的完整性
+        logger.info(f"Available slots: {', '.join(self.slot_names)}")
+
+    def _init_slot(self, slot_name: str):
+        """Initialize a knowledge slot
         
         Args:
-            text: 要分割的文本
-            chunk_size: 每个块的最大字符数
-            overlap: 块之间的重叠字符数
+            slot_name: Name of the slot to initialize
+        """
+        slot_dir = os.path.join(self.base_dir, slot_name.lower())
+        docs_dir = os.path.join(slot_dir, "docs")
+        index_dir = os.path.join(slot_dir, "index")
+        
+        # Ensure directories exist
+        os.makedirs(docs_dir, exist_ok=True)
+        os.makedirs(index_dir, exist_ok=True)
+        
+        # Initialize slot data structure
+        self.slots[slot_name] = {
+            'index': faiss.IndexFlatL2(self.dimension),
+            'documents': [],
+            'metadata': [],
+            'use_ivf': False,
+            'base_dir': slot_dir,
+            'docs_dir': docs_dir,
+            'index_dir': index_dir
+        }
+        
+        # Load existing data for the slot
+        self._load_slot_index(slot_name)
+
+    def _load_slot_index(self, slot_name: str):
+        """Load existing index and documents for a slot"""
+        slot = self.slots[slot_name]
+        index_file = os.path.join(slot['index_dir'], "faiss.index")
+        docs_file = os.path.join(slot['index_dir'], "documents.json")
+        
+        try:
+            if os.path.exists(index_file) and os.path.exists(docs_file):
+                # Load FAISS index
+                slot['index'] = faiss.read_index(index_file)
+                slot['use_ivf'] = isinstance(slot['index'], faiss.IndexIVFFlat)
+                
+                # Load documents and metadata
+                with open(docs_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    slot['documents'] = data['documents']
+                    slot['metadata'] = data['metadata']
+                
+                logger.info(f"Loaded {len(slot['documents'])} documents from slot {slot_name}")
+            else:
+                logger.info(f"No existing index found for slot {slot_name}, starting fresh")
+                
+        except Exception as e:
+            logger.error(f"Error loading index for slot {slot_name}: {e}")
+            slot['index'] = faiss.IndexFlatL2(self.dimension)
+            slot['use_ivf'] = False
+            slot['documents'] = []
+            slot['metadata'] = []
+
+    def _save_slot_index(self, slot_name: str):
+        """Save index and documents for a slot"""
+        slot = self.slots[slot_name]
+        try:
+            # Save FAISS index
+            index_file = os.path.join(slot['index_dir'], "faiss.index")
+            faiss.write_index(slot['index'], index_file)
+            
+            # Save documents and metadata
+            docs_file = os.path.join(slot['index_dir'], "documents.json")
+            with open(docs_file, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'documents': slot['documents'],
+                    'metadata': slot['metadata']
+                }, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"Saved {len(slot['documents'])} documents to slot {slot_name}")
+            
+        except Exception as e:
+            logger.error(f"Error saving index for slot {slot_name}: {e}")
+
+    def add_documents(self, texts: List[str], metadata_list: List[dict] = None, slot_name: str = "General"):
+        """Add multiple documents to a specific knowledge slot
+        
+        Args:
+            texts: List of texts to add
+            metadata_list: List of metadata dictionaries
+            slot_name: Name of the slot to add to (default: "General")
+        """
+        if slot_name not in self.slots:
+            raise ValueError(f"Invalid slot name: {slot_name}")
+            
+        slot = self.slots[slot_name]
+        
+        try:
+            if not texts:
+                logger.warning(f"Attempted to add empty text list to slot {slot_name}")
+                return
+            
+            # Ensure metadata_list matches texts length
+            if metadata_list is None:
+                metadata_list = [{}] * len(texts)
+            elif len(metadata_list) != len(texts):
+                raise ValueError("Length of texts and metadata_list must match")
+            
+            # Process each text
+            for text, metadata in zip(texts, metadata_list):
+                if not text.strip():
+                    continue
+                    
+                # Split text into chunks
+                sentences = self._split_text(text)
+                if not sentences:
+                    continue
+                
+                # Calculate embeddings
+                embeddings = self.model.encode(sentences, convert_to_numpy=True)
+                
+                # Add to slot index
+                self._batch_add_to_slot_index(slot_name, embeddings)
+                
+                # Save documents and metadata
+                for sentence in sentences:
+                    slot['documents'].append(sentence)
+                    slot['metadata'].append(metadata)
+            
+            # Save changes
+            self._save_slot_index(slot_name)
+            
+            logger.info(f"Added {len(texts)} documents to slot {slot_name}")
+            
+        except Exception as e:
+            logger.error(f"Error adding documents to slot {slot_name}: {e}")
+            raise
+
+    def _batch_add_to_slot_index(self, slot_name: str, embeddings: np.ndarray):
+        """Add vectors to a slot's index"""
+        slot = self.slots[slot_name]
+        try:
+            # Check if we need to switch to IVF index
+            if not slot['use_ivf'] and len(slot['documents']) >= 1000:
+                logger.info(f"Switching slot {slot_name} to IVF index")
+                ncentroids = min(int(len(slot['documents']) / 10), 100)
+                quantizer = faiss.IndexFlatL2(self.dimension)
+                new_index = faiss.IndexIVFFlat(quantizer, self.dimension, ncentroids)
+                
+                # Train new index
+                if len(slot['documents']) > 0:
+                    all_embeddings = self.model.encode(slot['documents'], convert_to_numpy=True)
+                    new_index.train(all_embeddings)
+                    new_index.add(all_embeddings)
+                
+                slot['index'] = new_index
+                slot['use_ivf'] = True
+                logger.info(f"Successfully switched slot {slot_name} to IVF index")
+            
+            # Add new vectors
+            slot['index'].add(embeddings)
+            logger.debug(f"Added {len(embeddings)} vectors to slot {slot_name}")
+            
+        except Exception as e:
+            logger.error(f"Error adding vectors to slot {slot_name}: {e}")
+            raise
+
+    def get_context(self, query: str, slot_name: str = None, top_k: int = 5, threshold: float = 0.3) -> str:
+        """Get relevant context from knowledge base
+        
+        Args:
+            query: Query text to find relevant context for
+            slot_name: Optional name of slot to search in. If None, searches all slots.
+            top_k: Number of most relevant documents to return
+            threshold: Minimum similarity score threshold
             
         Returns:
-            分割后的句子列表
+            String containing relevant context
         """
-        # 首先保护缩写词
+        try:
+            if not query:
+                return ""
+
+            # Get query embedding
+            query_embedding = self.model.encode([query], convert_to_numpy=True)
+
+            results = []
+            if slot_name:
+                # Search in specific slot
+                if slot_name not in self.slots:
+                    logger.warning(f"Slot {slot_name} not found")
+                    return ""
+                slot = self.slots[slot_name]
+                if not slot['documents']:
+                    return ""
+                    
+                # Search in slot's index
+                distances, indices = slot['index'].search(query_embedding, k=min(top_k, len(slot['documents'])))
+                
+                # Add results from this slot
+                for dist, idx in zip(distances[0], indices[0]):
+                    if idx < 0 or idx >= len(slot['documents']):
+                        continue
+                    similarity = 1 - (dist / 2)  # Convert L2 distance to similarity
+                    if similarity >= threshold:
+                        results.append((slot['documents'][idx], similarity))
+            else:
+                # Search in all slots
+                for slot_name, slot in self.slots.items():
+                    if not slot['documents']:
+                        continue
+                        
+                    # Search in slot's index
+                    distances, indices = slot['index'].search(query_embedding, k=min(top_k, len(slot['documents'])))
+                    
+                    # Add results from this slot
+                    for dist, idx in zip(distances[0], indices[0]):
+                        if idx < 0 or idx >= len(slot['documents']):
+                            continue
+                        similarity = 1 - (dist / 2)  # Convert L2 distance to similarity
+                        if similarity >= threshold:
+                            results.append((slot['documents'][idx], similarity))
+
+            # Sort all results by similarity
+            results.sort(key=lambda x: x[1], reverse=True)
+            results = results[:top_k]
+
+            if not results:
+                logger.info("No relevant context found")
+                return ""
+
+            # Format results
+            context_parts = []
+            for doc, score in results:
+                context_parts.append(f"Relevance {score:.2f}:\n{doc}")
+
+            return "\n\n".join(context_parts)
+
+        except Exception as e:
+            logger.error(f"Error getting context: {e}")
+            return ""
+
+    def get_document_count(self, slot_name: str = None) -> Dict[str, int]:
+        """Get document count for one or all slots
+        
+        Args:
+            slot_name: Optional slot name to get count for
+            
+        Returns:
+            Dict[str, int]: Mapping of slot names to document counts
+        """
+        try:
+            if slot_name:
+                if slot_name not in self.slots:
+                    return {}
+                return {slot_name: len(self.slots[slot_name]['documents'])}
+            else:
+                return {name: len(slot['documents']) for name, slot in self.slots.items()}
+        except Exception as e:
+            logger.error(f"Error getting document count: {e}")
+            return {}
+
+    def clear(self, slot_name: str = None):
+        """Clear one or all knowledge slots
+        
+        Args:
+            slot_name: Optional slot name to clear
+        """
+        try:
+            if slot_name:
+                if slot_name not in self.slots:
+                    return
+                slots_to_clear = [slot_name]
+            else:
+                slots_to_clear = list(self.slots.keys())
+            
+            for name in slots_to_clear:
+                slot = self.slots[name]
+                # Reset index
+                slot['index'] = faiss.IndexFlatL2(self.dimension)
+                slot['use_ivf'] = False
+                slot['documents'] = []
+                slot['metadata'] = []
+                self._save_slot_index(name)
+                
+                # Delete files
+                if os.path.exists(slot['index_dir']):
+                    for file in os.listdir(slot['index_dir']):
+                        file_path = os.path.join(slot['index_dir'], file)
+                        try:
+                            os.remove(file_path)
+                        except Exception as e:
+                            logger.error(f"Error deleting file {file_path}: {e}")
+            
+            logger.info(f"Cleared {len(slots_to_clear)} knowledge slots")
+            
+        except Exception as e:
+            logger.error(f"Error clearing knowledge base: {e}")
+
+    def get_all_documents(self, slot_name: str = None) -> Dict[str, List[Document]]:
+        """Get all documents from one or all slots
+        
+        Args:
+            slot_name: Optional slot name to get documents from
+            
+        Returns:
+            Dict[str, List[Document]]: Mapping of slot names to document lists
+        """
+        try:
+            results = {}
+            
+            if slot_name:
+                if slot_name not in self.slots:
+                    return {}
+                slots_to_get = [slot_name]
+            else:
+                slots_to_get = list(self.slots.keys())
+            
+            for name in slots_to_get:
+                slot = self.slots[name]
+                documents = []
+                for content, metadata in zip(slot['documents'], slot['metadata']):
+                    doc = Document(
+                        page_content=content,
+                        metadata=metadata
+                    )
+                    documents.append(doc)
+                results[name] = documents
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error getting all documents: {e}")
+            return {}
+
+    def get_slot_names(self) -> List[str]:
+        """Get list of available slot names"""
+        return self.slot_names.copy()
+
+    def reset(self):
+        """Reset singleton state"""
+        KnowledgeBase._instance = None
+        KnowledgeBase._initialized = False
+
+    def _split_text(self, text: str, chunk_size: int = 256, overlap: int = 100) -> List[str]:
+        """Split text into chunks intelligently, preserving abbreviations
+        
+        Args:
+            text: Text to split
+            chunk_size: Maximum characters per chunk
+            overlap: Number of overlapping characters between chunks
+            
+        Returns:
+            List of sentence chunks
+        """
+        # First protect abbreviations
         protected_text = text
         abbreviations = re.findall(r'\b[A-Z]{2,}\b', text)
         placeholders = {}
@@ -90,11 +411,11 @@ class KnowledgeBase:
             placeholders[placeholder] = abbr
             protected_text = protected_text.replace(abbr, placeholder)
         
-        # 分割成句子
+        # Split into sentences
         sentences = []
         current_chunk = ""
         
-        # 按句号分割，但保持缩写词完整
+        # Split by periods while keeping abbreviations intact
         parts = protected_text.split('.')
         
         for part in parts:
@@ -102,11 +423,11 @@ class KnowledgeBase:
             if not part:
                 continue
                 
-            # 恢复缩写词
+            # Restore abbreviations
             for placeholder, abbr in placeholders.items():
                 part = part.replace(placeholder, abbr)
             
-            # 如果当前块加上新句子超过了��大小，保存当前块并开始新块
+            # If current chunk plus new sentence exceeds chunk size, save current chunk and start new one
             if len(current_chunk) + len(part) > chunk_size:
                 if current_chunk:
                     sentences.append(current_chunk)
@@ -117,431 +438,20 @@ class KnowledgeBase:
                 else:
                     current_chunk = part
         
-        # 添加最后一个块
+        # Add the last chunk
         if current_chunk:
             sentences.append(current_chunk)
         
-        # 处理重叠
+        # Handle overlap
         if overlap > 0 and len(sentences) > 1:
             overlapped_sentences = []
             for i in range(len(sentences)):
                 if i > 0:
-                    # 从前一个块的末尾取 overlap 个字符
+                    # Take overlap characters from end of previous chunk
                     prev_end = sentences[i-1][-overlap:]
                     sentences[i] = prev_end + " " + sentences[i]
                 overlapped_sentences.append(sentences[i])
             sentences = overlapped_sentences
         
         return sentences
-    
-    def _batch_add_to_index(self, embeddings: np.ndarray):
-        """分批添加向量到索引
-        
-        Args:
-            embeddings: 要添加的向量
-        """
-        try:
-            # 检查是否需要切换到 IVF 索引
-            if not self.use_ivf and len(self.documents) >= 1000:
-                logger.info("Switching to IVF index due to dataset size")
-                # 创建新的 IVF 索引
-                ncentroids = min(int(len(self.documents) / 10), 100)  # 动态设���聚类数
-                quantizer = faiss.IndexFlatL2(self.dimension)
-                new_index = faiss.IndexIVFFlat(quantizer, self.dimension, ncentroids)
-                
-                # 训练新索引
-                if len(self.documents) > 0:
-                    all_embeddings = self.model.encode(self.documents, convert_to_numpy=True)
-                    new_index.train(all_embeddings)
-                    new_index.add(all_embeddings)
-                
-                self.index = new_index
-                self.use_ivf = True
-                logger.info(f"Successfully switched to IVF index with {ncentroids} centroids")
-            
-            # 添加新的向量
-            self.index.add(embeddings)
-            logger.debug(f"Added batch of {len(embeddings)} vectors to index")
-                
-        except Exception as e:
-            logger.error(f"Error adding vectors to index: {e}")
-            raise
-    
-    def add_text(self, text: str, metadata: dict = None):
-        """添加单个文本到知识库"""
-        try:
-            # 智能分割文本
-            sentences = self._split_text(text)
-            
-            if not sentences:
-                logger.warning("No valid sentences found in text")
-                return
-            
-            # 计算嵌入向量
-            embeddings = self.model.encode(sentences, convert_to_numpy=True)
-            
-            # 添加到索引
-            self._batch_add_to_index(embeddings)
-            
-            # 保存文档和元数据
-            for sentence in sentences:
-                self.documents.append(sentence)
-                self.metadata.append(metadata or {})
-            
-            # 保存更改
-            self._save_index()
-            
-            logger.info(f"Added {len(sentences)} sentences to knowledge base")
-            
-        except Exception as e:
-            logger.error(f"Error adding text: {e}")
-    
-    def add_documents(self, texts: List[str], metadata_list: List[dict] = None, collection_name: str = None):
-        """添加多个文档到知识库
-        
-        Args:
-            texts: 要添加的文本列表
-            metadata_list: 文本对应的元数据列表
-            collection_name: 集合名称（可选，用于兼容性）
-        """
-        try:
-            if not texts:
-                logger.warning("Attempted to add empty text list to knowledge base")
-                return
-            
-            # 确保 metadata_list 和 texts 长度相同
-            if metadata_list is None:
-                metadata_list = [{}] * len(texts)
-            elif len(metadata_list) != len(texts):
-                raise ValueError("Length of texts and metadata_list must match")
-            
-            # 处理每个本
-            for text, metadata in zip(texts, metadata_list):
-                if not text.strip():
-                    continue
-                self.add_text(text, metadata)
-            
-            logger.info(f"Successfully added {len(texts)} documents to knowledge base")
-            
-        except Exception as e:
-            logger.error(f"Error adding documents to knowledge base: {e}")
-            raise
-    
-    def get_context(self, query: str, k: int = 20, threshold: float = 0.2) -> str:
-        """获取与查询相关的上下文
-        
-        Args:
-            query: 查询文本
-            k: 返回的最相关文档数量
-            threshold: 相似度阈值
-            
-        Returns:
-            相关上下文文本
-        """
-        try:
-            if not self.documents:
-                logger.warning("Knowledge base is empty")
-                return ""
-            
-            # 提取查询中的缩写词
-            abbreviations = set(re.findall(r'\b[A-Z]{2,}\b', query))
-            logger.info(f"Found abbreviations in query: {abbreviations}")
-            
-            # 计算查询的嵌入向量
-            query_vector = self.model.encode([query], convert_to_numpy=True)
-            
-            # 搜索最相似的文档，增加检索数量以提高匹配概率
-            search_k = min(k * 3, len(self.documents))
-            if search_k == 0:
-                logger.warning("No documents to search")
-                return ""
-                
-            distances, indices = self.index.search(query_vector, k=search_k)
-            
-            # 检查搜索结果是否为空
-            if len(distances) == 0 or len(indices) == 0:
-                logger.warning("No search results found")
-                return ""
-            
-            # 构建上下文，优先考虑包含相同缩写词的文档
-            context_parts = []
-            seen_abbrs = set()  # 用于跟踪已处理的缩写词
-            added_docs = set()  # 用于跟踪已添加的文档
-            
-            # 第一轮：优先添加包含任何查询缩写词的文档
-            for dist, idx in zip(distances[0], indices[0]):
-                if idx < 0 or idx >= len(self.documents):  # 添加索引检查
-                    continue
-                    
-                doc = self.documents[idx]
-                if doc in added_docs:
-                    continue
-                    
-                similarity = 1 - (dist / 2)  # 转换距离为相似度
-                if similarity < threshold:
-                    continue
-                
-                # 检查文档中的缩写词
-                doc_abbrs = set(re.findall(r'\b[A-Z]{2,}\b', doc))
-                matching_abbrs = doc_abbrs.intersection(abbreviations)
-                
-                if matching_abbrs:
-                    context_parts.append(
-                        f"[Relevance: {similarity:.2%}]\n{doc}"
-                    )
-                    seen_abbrs.update(matching_abbrs)
-                    added_docs.add(doc)
-                    logger.info(f"Found relevant context with abbreviations {matching_abbrs}")
-            
-            # 第二轮：添加其他相关文档
-            remaining_slots = k - len(context_parts)
-            if remaining_slots > 0:
-                for dist, idx in zip(distances[0], indices[0]):
-                    if len(context_parts) >= k:
-                        break
-                        
-                    if idx < 0 or idx >= len(self.documents):  # 添加索引检查
-                        continue
-                        
-                    doc = self.documents[idx]
-                    if doc in added_docs:
-                        continue
-                        
-                    similarity = 1 - (dist / 2)
-                    if similarity >= threshold:
-                        context_parts.append(
-                            f"[Relevance: {similarity:.2%}]\n{doc}"
-                        )
-                        added_docs.add(doc)
-                        logger.info(f"Found relevant context with similarity {similarity:.2%}")
-            
-            if not context_parts:
-                logger.warning("No relevant context found")
-                return ""
-            
-            # 记录未找到上下文的缩写词
-            missing_abbrs = abbreviations - seen_abbrs
-            if missing_abbrs:
-                logger.warning(f"No context found for abbreviations: {missing_abbrs}")
-            
-            context = "\n\n---\n\n".join(context_parts)
-            logger.info(f"Retrieved {len(context_parts)} relevant contexts")
-            return context
-            
-        except Exception as e:
-            logger.error(f"Error getting context: {e}")
-            return ""
-    
-    def get_document_count(self) -> int:
-        """获取知识库中的文档数量"""
-        return len(self.documents)
-    
-    def clear(self):
-        """清空知识库"""
-        try:
-            # 重新初始化为简单索引
-            self.index = faiss.IndexFlatL2(self.dimension)
-            self.use_ivf = False
-            
-            self.documents = []
-            self.metadata = []
-            self._save_index()
-            logger.info("Knowledge base cleared")
-            
-            # 删除所有文件
-            if os.path.exists(self.index_dir):
-                for file in os.listdir(self.index_dir):
-                    file_path = os.path.join(self.index_dir, file)
-                    try:
-                        os.remove(file_path)
-                        logger.info(f"Deleted file: {file_path}")
-                    except Exception as e:
-                        logger.error(f"Error deleting file {file_path}: {e}")
-                        
-        except Exception as e:
-            logger.error(f"Error clearing knowledge base: {e}")
-            
-    def get_all_documents(self) -> List[Document]:
-        """获取知识库中的所有文档
-        
-        Returns:
-            List[Document]: 文档列表，每个文档包含 page_content 和 metadata
-        """
-        try:
-            # 构建文档对象列表
-            documents = []
-            for content, metadata in zip(self.documents, self.metadata):
-                doc = Document(
-                    page_content=content,
-                    metadata=metadata
-                )
-                documents.append(doc)
-            
-            logger.info(f"Retrieved {len(documents)} documents from knowledge base")
-            return documents
-            
-        except Exception as e:
-            logger.error(f"Error getting all documents: {e}")
-            return []
-    
-    def _load_index(self):
-        """加载现有索引和文档"""
-        index_file = os.path.join(self.index_dir, "faiss.index")
-        docs_file = os.path.join(self.index_dir, "documents.json")
-        
-        try:
-            if os.path.exists(index_file) and os.path.exists(docs_file):
-                # 加载 FAISS 索引
-                self.index = faiss.read_index(index_file)
-                self.use_ivf = isinstance(self.index, faiss.IndexIVFFlat)
-                
-                # 加载文档和元数据
-                with open(docs_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.documents = data['documents']
-                    self.metadata = data['metadata']
-                
-                logger.info(f"Loaded {len(self.documents)} documents from existing index")
-            else:
-                logger.info("No existing index found, starting fresh")
-                # 使用简单索引开始
-                self.index = faiss.IndexFlatL2(self.dimension)
-                self.use_ivf = False
-                
-        except Exception as e:
-            logger.error(f"Error loading index: {e}")
-            logger.warning("Starting with fresh index")
-            # 使用简单索引开始
-            self.index = faiss.IndexFlatL2(self.dimension)
-            self.use_ivf = False
-            self.documents = []
-            self.metadata = []
-    
-    def _save_index(self):
-        """保存索引和文档"""
-        try:
-            # 保存 FAISS 索引
-            index_file = os.path.join(self.index_dir, "faiss.index")
-            faiss.write_index(self.index, index_file)
-            
-            # 保存文档和元数据
-            docs_file = os.path.join(self.index_dir, "documents.json")
-            with open(docs_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'documents': self.documents,
-                    'metadata': self.metadata
-                }, f, ensure_ascii=False, indent=2)
-            
-            logger.info(f"Saved {len(self.documents)} documents to index")
-            
-        except Exception as e:
-            logger.error(f"Error saving index: {e}")
-    
-    def delete_document(self, doc_id: int) -> bool:
-        """删除指定的文档
-        
-        Args:
-            doc_id: 文档ID（索引）
-            
-        Returns:
-            bool: 是否成功删除
-        """
-        try:
-            if 0 <= doc_id < len(self.documents):
-                # 删除文档和元数据
-                del self.documents[doc_id]
-                del self.metadata[doc_id]
-                
-                # 重建索引
-                self.index = faiss.IndexIVFFlat(self.quantizer, self.dimension, 100)
-                self.index.nprobe = 10
-                
-                if self.documents:
-                    # 重新计算所有文档的嵌入向量
-                    embeddings = self.model.encode(self.documents, convert_to_numpy=True)
-                    self._batch_add_to_index(embeddings)
-                
-                # 保存更改
-                self._save_index()
-                
-                logger.info(f"Successfully deleted document {doc_id}")
-                return True
-            else:
-                logger.warning(f"Invalid document ID: {doc_id}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error deleting document: {e}")
-            return False
-    
-    def delete_documents(self, doc_ids: List[int]) -> bool:
-        """删除多个文档
-        
-        Args:
-            doc_ids: 要删除的文档ID列表
-            
-        Returns:
-            bool: 是否全部成功删除
-        """
-        try:
-            # 验证所有ID是否有效
-            if not all(0 <= doc_id < len(self.documents) for doc_id in doc_ids):
-                logger.warning("Some document IDs are invalid")
-                return False
-            
-            # 按降序排序以避免删除时的索引问题
-            for doc_id in sorted(doc_ids, reverse=True):
-                del self.documents[doc_id]
-                del self.metadata[doc_id]
-            
-            # 重建索引
-            self.index = faiss.IndexIVFFlat(self.quantizer, self.dimension, 100)
-            self.index.nprobe = 10
-            
-            if self.documents:
-                # 重新计算所有文档的嵌入向量
-                embeddings = self.model.encode(self.documents, convert_to_numpy=True)
-                self._batch_add_to_index(embeddings)
-            
-            # 保存更改
-            self._save_index()
-            
-            logger.info(f"Successfully deleted {len(doc_ids)} documents")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error deleting documents: {e}")
-            return False
-    
-    def search_documents(self, query: str, k: int = 10) -> List[Tuple[int, str, float]]:
-        """搜索文档并返回文档ID、内容和相似度
-        
-        Args:
-            query: 搜索查询
-            k: 返回的结果数量
-            
-        Returns:
-            List[Tuple[int, str, float]]: 文档ID、内容和相似度的列表
-        """
-        try:
-            if not self.documents:
-                return []
-            
-            # 计算查询向量
-            query_vector = self.model.encode([query], convert_to_numpy=True)
-            
-            # 搜索最相似的文档
-            distances, indices = self.index.search(query_vector, k=min(k, len(self.documents)))
-            
-            # 构建结果
-            results = []
-            for dist, idx in zip(distances[0], indices[0]):
-                similarity = 1 - (dist / 2)
-                results.append((idx, self.documents[idx], similarity))
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error searching documents: {e}")
-            return []
  
