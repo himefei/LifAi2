@@ -53,9 +53,8 @@ pip-delete-this-directory.txt
 
 # Project specific directories
 modules/AI_chat/chat_history/
-knowledge_base/index/
-knowledge_base/docs/
-models/*
+knowledge_base/
+models/
 !models/.gitkeep
 
 # Project specific files
@@ -87,10 +86,8 @@ embeddings/
 .cache/huggingface/
 .vector_cache/
 sentence-transformers/
-**/knowledge_base/**/index/
-**/knowledge_base/**/vectors/
-**/knowledge_base/**/*.faiss
-**/knowledge_base/**/*.pkl
+**/knowledge_base/
+**/models/
 
 # Generated files
 output/

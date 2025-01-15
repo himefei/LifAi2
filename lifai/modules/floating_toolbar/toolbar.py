@@ -7,7 +7,7 @@ from typing import Dict
 from pynput import mouse
 from lifai.utils.ollama_client import OllamaClient
 from lifai.utils.logger_utils import get_module_logger
-from lifai.config.saved_prompts import llm_prompts
+from lifai.config.prompts import llm_prompts
 from lifai.utils.clipboard_utils import ClipboardManager
 from lifai.utils.knowledge_base import KnowledgeBase
 import time

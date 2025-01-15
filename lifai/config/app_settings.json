@@ -1,1 +1,1 @@
-{"last_model": "hf.co/QuantFactory/granite-3.1-3b-a800m-instruct-GGUF:Q4_K_M", "backend": "ollama"}
+{"last_model": "hf.co/bartowski/Falcon3-3B-Instruct-GGUF:Q4_K_L", "backend": "ollama"}
