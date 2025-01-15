@@ -31,3 +31,6 @@ Here is your input text : {text}""",
         "use_rag": True
     },
 }
+
+# Get options from llm_prompts keys
+improvement_options = list(llm_prompts.keys())
