@@ -160,11 +160,13 @@ class FloatingToolbarModule(QMainWindow):
         progress_layout.addWidget(self.progress_label)
         frame_layout.addWidget(progress_frame)
         
-        # Setup breathing animation
+        # Setup breathing and rainbow animation
         self.breathing_timer = QTimer()
         self.breathing_timer.timeout.connect(self._update_breathing)
+        self.breathing_timer.setInterval(16)  # ~60fps for smoother animation
         self.breathing_in = True
-        self.breathing_value = 245  # f5f5f5 in decimal
+        self.breathing_value = 245
+        self.gradient_position = 0.0  # Position for gradient animation
         
         # 创建处理按钮
         self.process_btn = QPushButton("✨ Process Selected Text")
@@ -535,23 +537,92 @@ class FloatingToolbarModule(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to update client: {e}")
 
     def _update_breathing(self):
-        """Update the breathing animation effect"""
+        """Update the breathing and rainbow gradient animation effect"""
+        # Update breathing effect
         if self.breathing_in:
-            self.breathing_value = max(235, self.breathing_value - 2)  # Breathe in (darker)
+            self.breathing_value = max(235, self.breathing_value - 0.5)  # Even slower breathing
             if self.breathing_value <= 235:
                 self.breathing_in = False
         else:
-            self.breathing_value = min(245, self.breathing_value + 2)  # Breathe out (lighter)
+            self.breathing_value = min(245, self.breathing_value + 0.5)  # Even slower breathing
             if self.breathing_value >= 245:
                 self.breathing_in = True
-                
-        color = f"#{self.breathing_value:02x}{self.breathing_value:02x}{self.breathing_value:02x}"
+        
+        # Update gradient position (complete cycle in 5 seconds)
+        self.gradient_position = (self.gradient_position + 0.012) % 1.0  # 16ms * ~312 steps = 5000ms
+        
+        def get_rainbow_color(pos):
+            """Get rainbow color for position (0-1)"""
+            pos = pos % 1.0
+            # Use more color stops for smoother transitions
+            if pos < 0.166:  # Red to Yellow
+                r = 255
+                g = int(pos * 6 * 255)
+                b = 0
+            elif pos < 0.332:  # Yellow to Green
+                r = int((0.332 - pos) * 6 * 255)
+                g = 255
+                b = 0
+            elif pos < 0.498:  # Green to Cyan
+                r = 0
+                g = 255
+                b = int((pos - 0.332) * 6 * 255)
+            elif pos < 0.664:  # Cyan to Blue
+                r = 0
+                g = int((0.664 - pos) * 6 * 255)
+                b = 255
+            elif pos < 0.83:  # Blue to Purple
+                r = int((pos - 0.664) * 6 * 255)
+                g = 0
+                b = 255
+            else:  # Purple to Red
+                r = 255
+                g = 0
+                b = int((1.0 - pos) * 6 * 255)
+            return r, g, b
+
+        def adjust_brightness(r, g, b):
+            """Adjust RGB color brightness"""
+            brightness = self.breathing_value / 255
+            return (
+                int(r * brightness),
+                int(g * brightness),
+                int(b * brightness)
+            )
+        
+        # Calculate colors for gradient (use 5 points for smoother transition)
+        positions = [
+            self.gradient_position,
+            (self.gradient_position + 0.2) % 1.0,
+            (self.gradient_position + 0.4) % 1.0,
+            (self.gradient_position + 0.6) % 1.0,
+            (self.gradient_position + 0.8) % 1.0
+        ]
+        
+        colors = [get_rainbow_color(pos) for pos in positions]
+        
+        # Apply brightness based on breathing
+        colors = [adjust_brightness(*c) for c in colors]
+        
+        # Create smooth gradient effect with more color stops
+        gradient_stops = ", ".join([
+            f"stop: {i/4} rgb({r}, {g}, {b})"
+            for i, (r, g, b) in enumerate(colors)
+        ])
+        
+        gradient = f"""
+            background: qlineargradient(
+                x1: 0, y1: 0, x2: 1, y2: 0,
+                {gradient_stops}
+            );
+        """
+        
         self.progress_label.setStyleSheet(f"""
             QLabel {{
                 color: #1976D2;
                 font-weight: bold;
                 min-height: 20px;
-                background-color: {color};
+                {gradient}
                 border-radius: 3px;
                 padding: 2px;
             }}
@@ -561,7 +632,7 @@ class FloatingToolbarModule(QMainWindow):
         """Update the progress label"""
         if progress == -1:  # Clear progress
             self.breathing_timer.stop()
-            self.progress_label.setText("")
+            self.progress_label.setText("🚀 Ready")
             self.progress_label.setStyleSheet("""
                 QLabel {
                     color: #1976D2;
@@ -573,35 +644,32 @@ class FloatingToolbarModule(QMainWindow):
                 }
             """)
         elif progress == 0:  # Starting
-            self.progress_label.setText("Starting...")
-            self.breathing_timer.start(50)  # Start breathing animation
-            self.progress_label.setStyleSheet("""
-                QLabel {
-                    color: #1976D2;
-                    font-weight: bold;
-                    min-height: 20px;
-                    background-color: #f5f5f5;
-                    border-radius: 3px;
-                    padding: 2px;
-                }
-            """)
+            self.progress_label.setText("🔄 Processing")
+            self.breathing_timer.start()  # Start breathing animation
+            self.gradient_position = 0.0  # Reset gradient position
         elif progress == 100:  # Complete
             self.breathing_timer.stop()
-            self.progress_label.setText("Complete!")
+            self.progress_label.setText("✨ Complete!")
             self.progress_label.setStyleSheet("""
                 QLabel {
                     color: #4CAF50;
                     font-weight: bold;
                     min-height: 20px;
-                    background-color: #f5f5f5;
+                    background: qlineargradient(
+                        x1: 0, y1: 0, x2: 1, y2: 0,
+                        stop: 0 #E8F5E9,
+                        stop: 0.5 #C8E6C9,
+                        stop: 1 #E8F5E9
+                    );
                     border-radius: 3px;
                     padding: 2px;
                 }
             """)
-        else:  # Show percentage
+        else:  # Processing
             if not self.breathing_timer.isActive():
-                self.breathing_timer.start(50)
-            self.progress_label.setText(f"Processing... {progress}%")
+                self.breathing_timer.start()
+                self.gradient_position = 0.0  # Reset gradient position
+            self.progress_label.setText("🔄 Processing")
 
 class FloatingMiniWindow(QMainWindow):
     def __init__(self, parent):
