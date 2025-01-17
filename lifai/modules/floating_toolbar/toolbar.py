@@ -3,11 +3,11 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QTextEdit, QApplication, QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QColor
-from typing import Dict
+from typing import Dict, List
 from pynput import mouse
 from lifai.utils.ollama_client import OllamaClient
 from lifai.utils.logger_utils import get_module_logger
-from lifai.config.prompts import llm_prompts
+from lifai.config.prompts import llm_prompts, prompt_order
 from lifai.utils.clipboard_utils import ClipboardManager
 from lifai.utils.knowledge_base import KnowledgeBase
 import time
@@ -32,6 +32,7 @@ class FloatingToolbarModule(QMainWindow):
         self.processing = False
         self.clipboard = ClipboardManager()
         self.knowledge_base = KnowledgeBase()  # Initialize knowledge base
+        self.prompt_order = prompt_order if isinstance(prompt_order, list) else list(llm_prompts.keys())
         self.setup_ui()
         self.setup_hotkeys()
         self.hide()
@@ -113,7 +114,7 @@ class FloatingToolbarModule(QMainWindow):
         
         # 创建提示选择下拉框
         self.prompt_combo = QComboBox()
-        self.prompt_combo.addItems(list(llm_prompts.keys()))
+        self._update_prompt_combo()
         self.prompt_combo.setStyleSheet("""
             QComboBox {
                 border: 1px solid #e0e0e0;
@@ -325,26 +326,39 @@ class FloatingToolbarModule(QMainWindow):
         """Process text in a separate thread"""
         try:
             self.processing = True
-            self.progress_label.setText("🔄 Processing")
-            self.process_complete.emit()  # Signal start of processing
+            self.progress_updated.emit(0)  # Signal start
+            logger.debug("Starting text processing...")
             
             # Get current prompt template
-            prompt_name = self.prompt_combo.currentText()
-            prompt_info = llm_prompts.get(prompt_name, llm_prompts['Default Enhance'])
-            template = prompt_info['template']
+            current_prompt = self.prompt_combo.currentText()
+            logger.debug(f"Selected prompt: {current_prompt}")
+            
+            if current_prompt not in llm_prompts:
+                raise ValueError(f"Selected prompt '{current_prompt}' not found in available prompts")
+                
+            prompt_info = llm_prompts[current_prompt]
+            if not isinstance(prompt_info, dict):
+                raise ValueError(f"Invalid prompt format for '{current_prompt}'")
+                
+            template = prompt_info.get('template')
             use_rag = prompt_info.get('use_rag', False)
             
+            logger.debug(f"Using template with RAG={use_rag}")
+            
             # Get text from clipboard
-            text = QApplication.clipboard().text()
             if not text:
-                self.show_error.emit("No text selected")
-                return
+                text = QApplication.clipboard().text()
+            if not text:
+                raise ValueError("No text selected")
+            
+            logger.debug(f"Processing text: {text[:100]}...")
 
             # Initialize context dictionary
             contexts = {}
             
             # If RAG is enabled, get context from each slot
             if use_rag:
+                logger.debug("RAG is enabled, retrieving context...")
                 kb = KnowledgeBase()
                 slot_names = kb.get_slot_names()
                 
@@ -354,16 +368,25 @@ class FloatingToolbarModule(QMainWindow):
                     if f"{{{context_key}}}" in template:
                         context = kb.get_context(text, slot_name=slot_name)
                         contexts[context_key] = context if context else "No relevant context found."
+                        logger.debug(f"Retrieved context for {slot_name}")
                 
                 # Handle generic {context} placeholder
                 if "{context}" in template:
                     context = kb.get_context(text)  # Get context from all slots
                     contexts["context"] = context if context else "No relevant context found."
+                    logger.debug("Retrieved combined context")
 
             # Format prompt with text and contexts
-            prompt = template.format(text=text, **contexts)
+            try:
+                prompt = template.format(text=text, **contexts)
+                logger.debug("Prompt formatted successfully")
+            except KeyError as e:
+                raise ValueError(f"Error formatting prompt: missing placeholder {e}")
+            except Exception as e:
+                raise ValueError(f"Error formatting prompt: {e}")
 
             # Process with LLM
+            logger.debug(f"Sending request to {self.client_type}")
             if self.client_type == "ollama":
                 response = self.client.generate_response(
                     prompt=prompt,
@@ -378,9 +401,12 @@ class FloatingToolbarModule(QMainWindow):
                     temperature=0.7
                 )
                 processed_text = response['choices'][0]['message']['content']
-
+            
+            logger.debug("Received response from LLM")
+            
             # Emit processed text
             self.text_processed.emit(processed_text)
+            self.progress_updated.emit(100)  # Signal completion
             
         except Exception as e:
             error_msg = f"Error processing text: {str(e)}"
@@ -388,7 +414,6 @@ class FloatingToolbarModule(QMainWindow):
             self.show_error.emit(error_msg)
         finally:
             self.processing = False
-            self.progress_label.setText("🚀 Ready")
             self.process_complete.emit()
 
     def update_button_state(self):
@@ -453,36 +478,88 @@ class FloatingToolbarModule(QMainWindow):
             logger.error(f"Error in close event: {e}")
             event.accept()
 
-    def update_prompts(self, prompt_keys=None):
-        """更新提示词列表
+    def update_prompts(self, prompt_keys=None, prompt_order=None):
+        """Update available prompts and their order
         
         Args:
-            prompt_keys: 可选的提示词键列表，如果为None则使用全局llm_prompts
+            prompt_keys: Optional list of prompt keys to update
+            prompt_order: Optional list specifying the order of prompts
         """
-        try:
-            # 保存当前选择
-            current_text = self.prompt_combo.currentText()
+        logger.debug(f"Updating prompts with order: {prompt_order}")
+        
+        if prompt_order is not None:
+            self.prompt_order = prompt_order.copy()  # Make a copy to avoid reference issues
+            logger.debug(f"Updated prompt order to: {self.prompt_order}")
+        
+        if prompt_keys is None:
+            prompt_keys = list(llm_prompts.keys())
             
-            # 清空并重新填充
-            self.prompt_combo.clear()
-            if prompt_keys is not None:
-                self.prompt_combo.addItems(prompt_keys)
-            else:
-                self.prompt_combo.addItems(list(llm_prompts.keys()))
-            
-            # 尝试恢复之前的选择
+        self._update_prompt_combo()
+        self.update_button_state()
+
+    def _update_prompt_combo(self):
+        """Update prompt combo box items in the correct order"""
+        current_text = self.prompt_combo.currentText() if self.prompt_combo.count() > 0 else None
+        
+        self.prompt_combo.clear()
+        
+        # Add items in order
+        added_items = set()
+        for name in self.prompt_order:
+            if name in llm_prompts:
+                self.prompt_combo.addItem(name)
+                added_items.add(name)
+                logger.debug(f"Added prompt in order: {name}")
+        
+        # Add any remaining items that weren't in the order
+        for name in llm_prompts.keys():
+            if name not in added_items:
+                self.prompt_combo.addItem(name)
+                self.prompt_order.append(name)  # Add to order list
+                logger.debug(f"Added new prompt: {name}")
+        
+        # Restore previous selection if possible
+        if current_text and current_text in llm_prompts:
             index = self.prompt_combo.findText(current_text)
             if index >= 0:
                 self.prompt_combo.setCurrentIndex(index)
-            elif self.prompt_combo.count() > 0:
-                self.prompt_combo.setCurrentIndex(0)
-            
-            # Update button text based on current prompt
-            self.update_button_state()
-                
-            logger.info("Prompts list updated in floating toolbar")
-        except Exception as e:
-            logger.error(f"Error updating prompts in floating toolbar: {e}")
+                logger.debug(f"Restored selection to: {current_text}")
+        
+        # Update combo box style to better display emojis
+        self.prompt_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                padding: 5px 10px;
+                background: white;
+                font-size: 14px;
+                font-family: "Segoe UI Emoji", "Segoe UI", sans-serif;
+            }
+            QComboBox:hover {
+                border: 1px solid #1976D2;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border: none;
+            }
+            QComboBox QAbstractItemView {
+                padding: 8px;
+                font-size: 14px;
+                font-family: "Segoe UI Emoji", "Segoe UI", sans-serif;
+                selection-background-color: #E3F2FD;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 24px;
+                padding: 4px 8px;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #E3F2FD;
+            }
+        """)
 
     def update_client(self, new_client):
         """Update the LLM client when backend changes"""
@@ -520,12 +597,8 @@ class FloatingToolbarModule(QMainWindow):
             r, g, b = self._adjust_brightness(r, g, b)
             
             # Create gradient background with fixed dimensions
-            gradient_style = f"""
-                QLabel {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 rgb({r}, {g}, {b}),
-                        stop:1 rgb({r//2}, {g//2}, {b//2}));
-                    border-radius: 5px;
+            base_style = """
+                QLabel {
                     color: white;
                     padding: 5px;
                     min-width: 120px;
@@ -533,6 +606,16 @@ class FloatingToolbarModule(QMainWindow):
                     height: 30px;
                     width: 120px;
                     margin: 0px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }
+            """
+            
+            gradient_style = base_style + f"""
+                QLabel {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 rgb({r}, {g}, {b}),
+                        stop:1 rgb({r//2}, {g//2}, {b//2}));
                 }}
             """
             self.progress_label.setStyleSheet(gradient_style)
@@ -549,6 +632,7 @@ class FloatingToolbarModule(QMainWindow):
                     margin: 0px;
                     background: #f5f5f5;
                     border-radius: 5px;
+                    font-weight: bold;
                 }
             """)
     
@@ -584,17 +668,26 @@ class FloatingToolbarModule(QMainWindow):
     
     def _update_progress(self, progress: int):
         """Update the progress label"""
+        base_style = """
+            QLabel {
+                color: #1976D2;
+                padding: 5px;
+                min-width: 120px;
+                min-height: 20px;
+                height: 30px;
+                width: 120px;
+                margin: 0px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+        """
+        
         if progress == -1:  # Clear progress
             self.breathing_timer.stop()
             self.progress_label.setText("🚀 Ready")
-            self.progress_label.setStyleSheet("""
+            self.progress_label.setStyleSheet(base_style + """
                 QLabel {
-                    color: #1976D2;
-                    font-weight: bold;
-                    min-height: 20px;
-                    background-color: #f5f5f5;
-                    border-radius: 3px;
-                    padding: 2px;
+                    background: #f5f5f5;
                 }
             """)
         elif progress == 0:  # Starting
@@ -604,19 +697,15 @@ class FloatingToolbarModule(QMainWindow):
         elif progress == 100:  # Complete
             self.breathing_timer.stop()
             self.progress_label.setText("✨ Complete!")
-            self.progress_label.setStyleSheet("""
+            self.progress_label.setStyleSheet(base_style + """
                 QLabel {
                     color: #4CAF50;
-                    font-weight: bold;
-                    min-height: 20px;
                     background: qlineargradient(
                         x1: 0, y1: 0, x2: 1, y2: 0,
                         stop: 0 #E8F5E9,
                         stop: 0.5 #C8E6C9,
                         stop: 1 #E8F5E9
                     );
-                    border-radius: 3px;
-                    padding: 2px;
                 }
             """)
         else:  # Processing

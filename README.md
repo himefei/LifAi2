@@ -10,6 +10,31 @@
 - **OLLAMA** or **LM Studio**: For running local LLMs
 - **Operating System**: Windows/Linux/MacOS
 
+## 📥 Installation
+
+1. Install either [OLLAMA](https://ollama.ai/) or [LM Studio](https://lmstudio.ai/)
+2. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/LifAi2.git
+   cd LifAi2
+   ```
+3. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+## 🎮 How to Use
+
+1. Launch the app:
+   ```bash
+   python run.py
+   ```
+2. Click the "Toggle Toolbar" button in the app hub
+3. Select a prompt from the toolbar's dropdown menu
+4. Click the "Process Text" button
+5. Select any text you want to improve
+6. Wait for the magic to happen! ✨
+
 ## 🚀 Welcome!
 
 Hey there! 👋 I'm not a professional programmer, but with some high school coding experience and a lot of enthusiasm, I'm diving into the world of GitHub to build something awesome with AI.
