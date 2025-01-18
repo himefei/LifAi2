@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QComboBox, QPushButton, QFrame, QMessageBox,
                             QTextEdit, QApplication, QGraphicsDropShadowEffect)
-from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect
+from PyQt6.QtGui import QColor, QPalette
 from typing import Dict, List
 from pynput import mouse
 from lifai.utils.ollama_client import OllamaClient
@@ -15,6 +15,150 @@ import threading
 import logging
 
 logger = get_module_logger(__name__)
+
+class TextDisplayWindow(QMainWindow):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        
+        # Window setup
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
+        # Create main widget and layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        
+        # Create title bar
+        title_bar = QFrame()
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(10, 5, 10, 5)
+        
+        # Add spacer to push close button to right
+        title_layout.addStretch()
+        
+        # Close button
+        close_btn = QPushButton("×")
+        close_btn.setFixedSize(20, 20)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                color: #666;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #1976D2;
+            }
+        """)
+        close_btn.clicked.connect(self.hide)
+        title_layout.addWidget(close_btn)
+        
+        layout.addWidget(title_bar)
+        
+        # Text display
+        self.text_display = QTextEdit()
+        self.text_display.setReadOnly(True)
+        self.text_display.setMinimumWidth(500)
+        self.text_display.setStyleSheet("""
+            QTextEdit {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                padding: 10px;
+                font-size: 13px;
+                font-family: "Segoe UI", sans-serif;
+                color: #333;
+            }
+        """)
+        layout.addWidget(self.text_display)
+        
+        # Window styling
+        self.setStyleSheet("""
+            QMainWindow {
+                background: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 10px;
+            }
+        """)
+        
+        # Add shadow effect
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20)
+        shadow.setXOffset(0)
+        shadow.setYOffset(2)
+        shadow.setColor(QColor(0, 0, 0, 50))
+        central_widget.setGraphicsEffect(shadow)
+        
+        # Set fixed width
+        self.setFixedWidth(500)
+
+    def setText(self, text: str):
+        """Set text and adjust window height"""
+        self.text_display.setText(text)
+        
+        # Calculate and set window height based on content
+        doc_height = self.text_display.document().size().height()
+        window_height = min(doc_height + 80, 600)  # +80 for margins and title bar
+        self.setFixedHeight(max(window_height, 150))  # Minimum height 150px
+
+    def updatePosition(self):
+        """Update window position relative to parent toolbar"""
+        if not self.parent:
+            return
+            
+        # Get the screen containing the toolbar
+        toolbar_center = self.parent.geometry().center()
+        current_screen = QApplication.screenAt(toolbar_center)
+        if not current_screen:
+            current_screen = QApplication.primaryScreen()
+        
+        # Get the geometry of the current screen
+        screen = current_screen.geometry()
+        toolbar = self.parent.geometry()
+        
+        logger.debug(f"Toolbar position: {toolbar.topLeft()}, Screen: {screen.topLeft()} -> {screen.bottomRight()}")
+        
+        # Calculate available space in each direction
+        space_right = screen.right() - (toolbar.right() + 10)
+        space_left = toolbar.left() - screen.left() - 10
+        space_bottom = screen.bottom() - (toolbar.bottom() + 10)
+        space_top = toolbar.top() - screen.top() - 10
+        
+        logger.debug(f"Available space - Right: {space_right}, Left: {space_left}, Bottom: {space_bottom}, Top: {space_top}")
+        
+        # Determine position based on available space
+        if space_right >= self.width():
+            # Place on right
+            x = toolbar.right() + 10
+            y = toolbar.top()
+            logger.debug("Positioning on right")
+        elif space_left >= self.width():
+            # Place on left
+            x = toolbar.left() - self.width() - 10
+            y = toolbar.top()
+            logger.debug("Positioning on left")
+        elif space_bottom >= self.height():
+            # Place below
+            x = toolbar.left() - ((self.width() - toolbar.width()) // 2)
+            y = toolbar.bottom() + 10
+            logger.debug("Positioning below")
+        else:
+            # Place above
+            x = toolbar.left() - ((self.width() - toolbar.width()) // 2)
+            y = toolbar.top() - self.height() - 10
+            logger.debug("Positioning above")
+            
+        # Ensure window stays within current screen bounds
+        x = max(screen.left(), min(x, screen.right() - self.width()))
+        y = max(screen.top(), min(y, screen.bottom() - self.height()))
+        
+        logger.debug(f"Final position: ({x}, {y})")
+        self.move(x, y)
 
 class FloatingToolbarModule(QMainWindow):
     # Define signals at class level
@@ -42,32 +186,41 @@ class FloatingToolbarModule(QMainWindow):
         self.selection_finished.connect(self._reset_ui)
         self.show_error.connect(self._show_error_dialog)
         self.process_complete.connect(self._reset_ui)
+        
+        # Add quick review drawer
+        self.quick_review_drawer = None
+        self.drawer_animation = None
+        self.setup_quick_review_drawer()
+        
+        # Initialize text display window
+        self.text_window = TextDisplayWindow(self)
 
     def setup_ui(self):
-        """设置界面"""
-        # 设置窗口属性
+        """Setup the main toolbar UI"""
+        # Window properties
         self.setWindowTitle("LifAi2 Toolbar")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # Enable transparency for rounded corners
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        # 创建主窗口部件
+        # Create main widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(8)  # Increased spacing for modern look
+        self.main_layout = QVBoxLayout(central_widget)
+        self.main_layout.setContentsMargins(5, 5, 5, 5)
+        self.main_layout.setSpacing(8)
         
-        # Create main frame with rounded corners and shadow
-        main_frame = QFrame()
-        main_frame.setObjectName("mainFrame")
-        main_frame.setStyleSheet("""
+        # Create main frame with fixed size
+        self.main_frame = QFrame()
+        self.main_frame.setObjectName("mainFrame")
+        self.main_frame.setFixedSize(200, 180)  # Fixed width and height for main toolbar
+        self.main_frame.setStyleSheet("""
             QFrame#mainFrame {
                 background-color: white;
                 border-radius: 10px;
                 border: 1px solid #e0e0e0;
             }
         """)
-        frame_layout = QVBoxLayout(main_frame)
+        frame_layout = QVBoxLayout(self.main_frame)
         frame_layout.setContentsMargins(10, 10, 10, 10)
         frame_layout.setSpacing(8)
         
@@ -192,7 +345,7 @@ class FloatingToolbarModule(QMainWindow):
         frame_layout.addWidget(self.process_btn)
         
         # Add main frame to main layout
-        main_layout.addWidget(main_frame)
+        self.main_layout.addWidget(self.main_frame)
         
         # Add shadow effect
         shadow = QGraphicsDropShadowEffect(self)
@@ -200,7 +353,7 @@ class FloatingToolbarModule(QMainWindow):
         shadow.setXOffset(0)
         shadow.setYOffset(2)
         shadow.setColor(QColor(0, 0, 0, 50))
-        main_frame.setGraphicsEffect(shadow)
+        self.main_frame.setGraphicsEffect(shadow)
         
         # Connect progress signal
         self.progress_updated.connect(self._update_progress)
@@ -223,6 +376,10 @@ class FloatingToolbarModule(QMainWindow):
 
     def minimize_toolbar(self):
         """最小化工具栏"""
+        # Hide quick review drawer if visible
+        if self.quick_review_drawer and self.quick_review_drawer.isVisible():
+            self.quick_review_drawer.hide()
+        
         self.hide()
         if not self.mini_window:
             self.mini_window = FloatingMiniWindow(self)
@@ -250,6 +407,10 @@ class FloatingToolbarModule(QMainWindow):
 
     def start_processing(self):
         """Start text processing"""
+        # Hide text window if visible
+        if hasattr(self, 'text_window'):
+            self.text_window.hide()
+            
         if self.waiting_for_selection:
             return
             
@@ -417,20 +578,28 @@ class FloatingToolbarModule(QMainWindow):
             self.process_complete.emit()
 
     def update_button_state(self):
-        """更新按钮状态"""
+        """Update button state"""
         try:
             if not self.processing:
-                # Get current prompt data to check if RAG is enabled
+                # Get current prompt data
                 current_prompt = self.prompt_combo.currentText()
                 prompt_data = llm_prompts.get(current_prompt, {})
                 
-                # Check if RAG is enabled for this prompt
+                # Check prompt settings
                 use_rag = False
+                is_quick_review = False
                 if isinstance(prompt_data, dict):
                     use_rag = prompt_data.get('use_rag', False)
+                    is_quick_review = prompt_data.get('quick_review', False)
                 
-                # Update button text based on RAG status
-                button_text = "💫 Process Text (with RAG)" if use_rag else "⚡ Process Text"
+                # Update button text based on settings
+                if is_quick_review:
+                    button_text = "🔍 Quick Review Text"
+                elif use_rag:
+                    button_text = "💫 Process Text (with RAG)"
+                else:
+                    button_text = "⚡ Process Text"
+                    
                 self.process_btn.setText(button_text)
                 self.process_btn.setEnabled(True)
         except Exception as e:
@@ -442,21 +611,40 @@ class FloatingToolbarModule(QMainWindow):
             if not text:
                 logger.warning("Received empty processed text")
                 return
+            
+            # Get current prompt info
+            current_prompt = self.prompt_combo.currentText()
+            prompt_info = llm_prompts.get(current_prompt, {})
+            is_quick_review = prompt_info.get('quick_review', False) if isinstance(prompt_info, dict) else False
+            
+            logger.debug(f"Handling processed text for prompt '{current_prompt}' (quick_review={is_quick_review})")
+            
+            if is_quick_review:
+                # Show in text window
+                self.text_window.setText(text)
+                self.text_window.updatePosition()
+                self.text_window.show()
+                logger.debug("Showing text in display window")
+            else:
+                # Replace selected text as before
+                logger.info("Replacing selected text...")
+                self.clipboard.replace_selected_text(text)
+                logger.info("Text replacement complete")
                 
-            logger.info("Replacing selected text...")
-            self.clipboard.replace_selected_text(text)
-            logger.info("Text replacement complete")
         except Exception as e:
-            logger.error(f"Error replacing text: {e}")
-            self._show_error_dialog(f"Error replacing text: {e}")
+            logger.error(f"Error handling processed text: {e}")
+            self._show_error_dialog(f"Error handling text: {e}")
 
     def _reset_ui(self):
-        """在主线程中重置 UI 状态"""
+        """Reset UI state"""
         try:
             self.waiting_for_selection = False
             self.process_btn.setText("✨ Process Selected Text")
             self.process_btn.setEnabled(True)
-            self.show()
+            
+            # Hide quick review with animation
+            self.hide_quick_review()
+            
         except Exception as e:
             logger.error(f"Error resetting UI: {e}")
 
@@ -468,9 +656,10 @@ class FloatingToolbarModule(QMainWindow):
             logger.error(f"Error showing error dialog: {e}")
 
     def closeEvent(self, event):
-        """处理窗口关闭事件"""
+        """Handle window close event"""
         try:
-            # 清理资源
+            if hasattr(self, 'text_window'):
+                self.text_window.close()
             self.waiting_for_selection = False
             self.processing = False
             super().closeEvent(event)
@@ -713,6 +902,147 @@ class FloatingToolbarModule(QMainWindow):
                 self.breathing_timer.start()
                 self.gradient_position = 0.0  # Reset gradient position
             self.progress_label.setText("🔄 Processing")
+
+    def setup_quick_review_drawer(self):
+        """Setup the quick review panel with animation"""
+        # Create container frame for the drawer
+        self.drawer_container = QFrame(self.centralWidget())  # Attach to central widget
+        self.drawer_container.setObjectName("drawerContainer")
+        self.drawer_container.setFixedWidth(400)  # Double the main toolbar width
+        
+        # Create layout for the container
+        container_layout = QVBoxLayout(self.drawer_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        
+        # Create the review panel
+        self.quick_review_panel = QFrame()
+        self.quick_review_panel.setObjectName("quickReviewPanel")
+        self.quick_review_panel.setMaximumHeight(0)  # Initially collapsed
+        
+        # Create layout for the panel
+        panel_layout = QVBoxLayout(self.quick_review_panel)
+        panel_layout.setContentsMargins(10, 10, 10, 10)
+        panel_layout.setSpacing(8)
+        
+        # Create text display
+        self.review_text = QTextEdit()
+        self.review_text.setReadOnly(True)
+        self.review_text.setMinimumWidth(380)  # Set minimum width for text area
+        self.review_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 13px;
+                font-family: "Segoe UI", sans-serif;
+                color: #333;
+            }
+        """)
+        panel_layout.addWidget(self.review_text)
+        
+        # Style the panel
+        self.quick_review_panel.setStyleSheet("""
+            QFrame#quickReviewPanel {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 10px;
+                margin: 5px;
+            }
+        """)
+        
+        # Add shadow effect
+        shadow = QGraphicsDropShadowEffect(self.quick_review_panel)
+        shadow.setBlurRadius(20)
+        shadow.setXOffset(0)
+        shadow.setYOffset(2)
+        shadow.setColor(QColor(0, 0, 0, 50))
+        self.quick_review_panel.setGraphicsEffect(shadow)
+        
+        # Add panel to container
+        container_layout.addWidget(self.quick_review_panel)
+        
+        # Add container to main layout
+        self.main_layout.addWidget(self.drawer_container)
+        
+        # Setup animation
+        self.drawer_animation = QPropertyAnimation(self.quick_review_panel, b"maximumHeight")
+        self.drawer_animation.setDuration(300)  # 300ms animation
+        self.drawer_animation.setEasingCurve(QEasingCurve.Type.OutQuad)
+        
+        # Initialize state
+        self.is_drawer_visible = False
+        self.drawer_container.hide()
+
+    def show_quick_review(self, text: str):
+        """Show the quick review panel with animation"""
+        try:
+            if not hasattr(self, 'quick_review_panel'):
+                logger.error("Quick review panel not initialized")
+                return
+            
+            logger.debug(f"Showing quick review panel with text: {text[:100]}...")
+            
+            # Set the text first
+            self.review_text.setText(text)
+            
+            # Show container and panel
+            self.drawer_container.show()
+            self.quick_review_panel.show()
+            
+            # Calculate required height based on text content
+            doc_size = self.review_text.document().size()
+            text_height = doc_size.height() + 40  # Add padding
+            panel_height = min(max(text_height, 150), 600)  # Min 150px, Max 600px
+            
+            logger.debug(f"Calculated panel height: {panel_height}px")
+            
+            # Animate the drawer opening
+            if not self.is_drawer_visible:
+                self.drawer_animation.setStartValue(0)
+                self.drawer_animation.setEndValue(panel_height)
+                self.drawer_animation.finished.connect(lambda: self._animation_finished(True))
+                self.drawer_animation.start()
+            
+        except Exception as e:
+            logger.error(f"Error showing quick review: {e}")
+            self._show_error_dialog(f"Error showing quick review: {e}")
+
+    def hide_quick_review(self):
+        """Hide the quick review panel with animation"""
+        try:
+            if self.is_drawer_visible:
+                self.drawer_animation.setStartValue(self.quick_review_panel.height())
+                self.drawer_animation.setEndValue(0)
+                self.drawer_animation.finished.connect(lambda: self._animation_finished(False))
+                self.drawer_animation.start()
+                
+        except Exception as e:
+            logger.error(f"Error hiding quick review: {e}")
+
+    def _animation_finished(self, is_open: bool):
+        """Handle animation completion"""
+        try:
+            self.is_drawer_visible = is_open
+            if not is_open:
+                self.quick_review_panel.hide()
+                self.drawer_container.hide()
+            
+            # Disconnect the finished signal
+            self.drawer_animation.finished.disconnect()
+            
+            logger.debug(f"Drawer animation finished. Drawer is {'open' if is_open else 'closed'}")
+            
+        except Exception as e:
+            logger.error(f"Error in animation finished handler: {e}")
+
+    def moveEvent(self, event):
+        """Handle toolbar movement"""
+        super().moveEvent(event)
+        # Update text window position if visible
+        if hasattr(self, 'text_window') and self.text_window.isVisible():
+            self.text_window.updatePosition()
 
 class FloatingMiniWindow(QMainWindow):
     def __init__(self, parent):

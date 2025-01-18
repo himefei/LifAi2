@@ -113,9 +113,19 @@ class PromptEditorWindow(QMainWindow):
         self.name_entry = QLineEdit()
         name_layout.addWidget(self.name_entry)
         
+        # Add checkboxes in a vertical layout
+        checkbox_layout = QVBoxLayout()
+        
         # Add RAG checkbox
         self.rag_checkbox = QCheckBox("Use RAG (Retrieval)")
-        name_layout.addWidget(self.rag_checkbox)
+        checkbox_layout.addWidget(self.rag_checkbox)
+        
+        # Add quick review checkbox
+        self.quick_review_checkbox = QCheckBox("Display as Quick Review")
+        checkbox_layout.addWidget(self.quick_review_checkbox)
+        
+        # Add checkbox layout to name layout
+        name_layout.addLayout(checkbox_layout)
         
         right_layout.addLayout(name_layout)
         
@@ -201,19 +211,23 @@ Please process this text:
         if isinstance(prompt_data, str):  # Handle legacy format
             template = prompt_data
             use_rag = False
+            quick_review = False
         else:
             template = prompt_data.get('template', '')
             use_rag = prompt_data.get('use_rag', False)
+            quick_review = prompt_data.get('quick_review', False)
         
         self.name_entry.setText(name)
         self.template_text.setPlainText(template)
         self.rag_checkbox.setChecked(use_rag)
+        self.quick_review_checkbox.setChecked(quick_review)
 
     def new_prompt(self):
         """Clear the editor for a new prompt"""
         self.name_entry.clear()
         self.template_text.clear()
         self.rag_checkbox.setChecked(False)
+        self.quick_review_checkbox.setChecked(False)
         self.prompts_list.clearSelection()
 
     def show_error(self, message: str):
@@ -247,10 +261,11 @@ Please process this text:
                 if base_name in self.default_emojis:
                     name = f"{self.default_emojis[base_name]} {base_name}"
             
-            # Update prompt with RAG setting
+            # Update prompt with RAG and quick review settings
             self.prompts_data['templates'][name] = {
                 'template': prompt,
-                'use_rag': self.rag_checkbox.isChecked()
+                'use_rag': self.rag_checkbox.isChecked(),
+                'quick_review': self.quick_review_checkbox.isChecked()
             }
             
             # Update list

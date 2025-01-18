@@ -48,64 +48,28 @@ class OllamaClient:
             logger.error(f"Error fetching models: {str(e)}")
             return []
 
-    def generate_response(self, prompt: str, model: str) -> Optional[str]:
+    def generate_response(self, prompt: str, model: str = "mistral") -> str:
+        """Generate a response from the model"""
         try:
-            if not prompt:
-                raise ValueError("Prompt cannot be empty")
-            if not model:
-                raise ValueError("Model name cannot be empty")
-
-            logger.debug(f"Generating response using model: {model}")
-            logger.debug(f"Prompt: {prompt[:100]}...")  # Log first 100 chars of prompt
-
-            # Prepare request data
-            request_data = {
+            url = f"{self.base_url}/api/generate"
+            data = {
                 "model": model,
                 "prompt": prompt,
-                "stream": False  # Get complete response at once
+                "stream": False
             }
             
-            logger.debug(f"Sending request to {self.base_url}/api/generate")
+            # Increased timeout to 120 seconds for longer text processing
+            response = requests.post(url, json=data, timeout=120)
             
-            response = requests.post(
-                f"{self.base_url}/api/generate",
-                json=request_data,
-                timeout=30  # 30 second timeout
-            )
-
             if response.status_code == 200:
-                try:
-                    response_json = response.json()
-                    result = response_json.get('response', '')
-                    if not result:
-                        raise ValueError("Empty response from server")
-                    
-                    logger.info("Successfully generated response")
-                    logger.debug(f"Response length: {len(result)} characters")
-                    return result.strip()
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON response: {e}")
-                    raise ValueError("Invalid response format from server")
+                return response.json()["response"]
             else:
-                error_msg = f"Failed to generate response. Status code: {response.status_code}"
-                try:
-                    error_details = response.json()
-                    if 'error' in error_details:
-                        error_msg += f". Error: {error_details['error']}"
-                except:
-                    pass
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-
-        except requests.exceptions.ConnectionError:
-            error_msg = "Could not connect to Ollama server. Is it running?"
-            logger.error(error_msg)
-            raise ConnectionError(error_msg)
+                error_msg = f"Request failed with status {response.status_code}"
+                if response.text:
+                    error_msg += f": {response.text}"
+                raise Exception(error_msg)
+                
         except requests.exceptions.Timeout:
-            error_msg = "Request timed out. The server took too long to respond."
-            logger.error(error_msg)
-            raise TimeoutError(error_msg)
+            raise Exception("Request timed out. The server took too long to respond.")
         except Exception as e:
-            error_msg = f"Error generating response: {str(e)}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+            raise Exception(f"Error generating response: {str(e)}")
