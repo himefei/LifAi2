@@ -1,1 +1,1 @@
-{"last_model": "hf.co/bartowski/Falcon3-3B-Instruct-GGUF:Q4_K_L", "backend": "ollama"}
+{"last_model": "falcon3-3b-instruct", "backend": "lmstudio"}
