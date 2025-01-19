@@ -1,6 +1,7 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Union
 import requests
 import logging
+import base64
 from lifai.utils.logger_utils import get_module_logger
 import json
 
@@ -48,15 +49,32 @@ class OllamaClient:
             logger.error(f"Error fetching models: {str(e)}")
             return []
 
-    def generate_response(self, prompt: str, model: str = "mistral") -> str:
-        """Generate a response from the model"""
+    def generate_response(self, prompt: str, model: str = "mistral", 
+                         images: Optional[List[str]] = None,
+                         format: Optional[Union[str, Dict]] = None,
+                         stream: bool = False) -> str:
+        """Generate a response from the model with enhanced features
+
+        Args:
+            prompt: The prompt to generate a response for
+            model: The model to use
+            images: Optional list of base64 encoded images for multimodal models
+            format: Optional format specification ('json' or a JSON schema)
+            stream: Whether to stream the response
+        """
         try:
             url = f"{self.base_url}/api/generate"
             data = {
                 "model": model,
                 "prompt": prompt,
-                "stream": False
+                "stream": stream
             }
+
+            # Add optional parameters if provided
+            if images:
+                data["images"] = images
+            if format:
+                data["format"] = format
             
             # Increased timeout to 120 seconds for longer text processing
             response = requests.post(url, json=data, timeout=120)
@@ -73,3 +91,34 @@ class OllamaClient:
             raise Exception("Request timed out. The server took too long to respond.")
         except Exception as e:
             raise Exception(f"Error generating response: {str(e)}")
+
+    def chat_completion(self, messages: List[Dict], model: str = "mistral",
+                       stream: bool = False, 
+                       format: Optional[Union[str, Dict]] = None) -> Dict:
+        """Generate a chat completion using the new chat endpoint
+        
+        Args:
+            messages: List of message dictionaries with role and content
+            model: The model to use
+            stream: Whether to stream the response
+            format: Optional format specification ('json' or a JSON schema)
+        """
+        try:
+            url = f"{self.base_url}/api/chat"
+            data = {
+                "model": model,
+                "messages": messages,
+                "stream": stream
+            }
+
+            if format:
+                data["format"] = format
+
+            response = requests.post(url, json=data, timeout=120)
+            response.raise_for_status()
+            
+            return response.json()
+
+        except Exception as e:
+            logger.error(f"Error in chat completion: {e}")
+            raise

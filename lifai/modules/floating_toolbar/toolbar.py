@@ -2,8 +2,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QComboBox, QPushButton, QFrame, QMessageBox,
                             QTextEdit, QApplication, QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect
-from PyQt6.QtGui import QColor, QPalette
-from typing import Dict, List
+from PyQt6.QtGui import QColor, QPalette, QImage
+from typing import Dict, List, Optional
 from pynput import mouse
 from lifai.utils.ollama_client import OllamaClient
 from lifai.utils.logger_utils import get_module_logger
@@ -13,6 +13,9 @@ from lifai.utils.knowledge_base import KnowledgeBase
 import time
 import threading
 import logging
+import base64
+from io import BytesIO
+from PIL import Image
 
 logger = get_module_logger(__name__)
 
@@ -167,6 +170,8 @@ class FloatingToolbarModule(QMainWindow):
     show_error = pyqtSignal(str)  # Signal for error messages
     process_complete = pyqtSignal()  # Signal for process completion
     progress_updated = pyqtSignal(int)  # New signal for progress updates
+    quick_review_text = pyqtSignal(str)  # New signal for quick review text
+    processing_error = pyqtSignal(str)  # New signal for processing errors
 
     def __init__(self, settings: Dict, ollama_client: OllamaClient):
         super().__init__()
@@ -186,6 +191,8 @@ class FloatingToolbarModule(QMainWindow):
         self.selection_finished.connect(self._reset_ui)
         self.show_error.connect(self._show_error_dialog)
         self.process_complete.connect(self._reset_ui)
+        self.quick_review_text.connect(self.show_quick_review)
+        self.processing_error.connect(self._show_error_dialog)
         
         # Add quick review drawer
         self.quick_review_drawer = None
@@ -486,56 +493,42 @@ class FloatingToolbarModule(QMainWindow):
     def _process_text_thread(self, text: str):
         """Process text in a separate thread"""
         try:
-            self.processing = True
-            self.progress_updated.emit(0)  # Signal start
-            logger.debug("Starting text processing...")
-            
             # Get current prompt template
-            current_prompt = self.prompt_combo.currentText()
-            logger.debug(f"Selected prompt: {current_prompt}")
-            
-            if current_prompt not in llm_prompts:
-                raise ValueError(f"Selected prompt '{current_prompt}' not found in available prompts")
+            prompt_name = self.prompt_combo.currentText()
+            if not prompt_name or prompt_name not in llm_prompts:
+                raise ValueError("No valid prompt template selected")
+
+            prompt_config = llm_prompts[prompt_name]
+            template = prompt_config["template"]
+            use_rag = prompt_config.get("use_rag", False)
+            quick_review = prompt_config.get("quick_review", False)
+
+            # Extract any images from clipboard if using Ollama
+            images = []
+            if self.client_type == "ollama":
+                clipboard = QApplication.clipboard()
+                mime_data = clipboard.mimeData()
                 
-            prompt_info = llm_prompts[current_prompt]
-            if not isinstance(prompt_info, dict):
-                raise ValueError(f"Invalid prompt format for '{current_prompt}'")
-                
-            template = prompt_info.get('template')
-            use_rag = prompt_info.get('use_rag', False)
-            
-            logger.debug(f"Using template with RAG={use_rag}")
-            
-            # Get text from clipboard
-            if not text:
-                text = QApplication.clipboard().text()
-            if not text:
-                raise ValueError("No text selected")
-            
-            logger.debug(f"Processing text: {text[:100]}...")
+                if mime_data.hasImage():
+                    image = QImage(mime_data.imageData())
+                    # Convert QImage to PIL Image
+                    buffer = BytesIO()
+                    image.save(buffer, format="PNG")
+                    # Convert to base64
+                    image_base64 = base64.b64encode(buffer.getvalue()).decode()
+                    images.append(image_base64)
+                    logger.info("Added image from clipboard for processing")
 
             # Initialize context dictionary
             contexts = {}
             
-            # If RAG is enabled, get context from each slot
+            # Get RAG context if needed
             if use_rag:
-                logger.debug("RAG is enabled, retrieving context...")
-                kb = KnowledgeBase()
-                slot_names = kb.get_slot_names()
-                
-                # Get context for each slot if placeholder exists
-                for i, slot_name in enumerate(slot_names, 1):
-                    context_key = f"context{i}"
-                    if f"{{{context_key}}}" in template:
-                        context = kb.get_context(text, slot_name=slot_name)
-                        contexts[context_key] = context if context else "No relevant context found."
-                        logger.debug(f"Retrieved context for {slot_name}")
-                
-                # Handle generic {context} placeholder
-                if "{context}" in template:
-                    context = kb.get_context(text)  # Get context from all slots
-                    contexts["context"] = context if context else "No relevant context found."
-                    logger.debug("Retrieved combined context")
+                try:
+                    contexts = self._get_rag_context(text)
+                except Exception as e:
+                    logger.error(f"Error getting RAG context: {e}")
+                    contexts = {"context": "Error retrieving context"}
 
             # Format prompt with text and contexts
             try:
@@ -549,11 +542,19 @@ class FloatingToolbarModule(QMainWindow):
             # Process with LLM
             logger.debug(f"Sending request to {self.client_type}")
             if self.client_type == "ollama":
-                response = self.client.generate_response(
-                    prompt=prompt,
-                    model=self.settings.get('model', 'mistral')
-                )
-                processed_text = response
+                if images:  # Use chat endpoint for image processing
+                    messages = [{"role": "user", "content": prompt, "images": images}]
+                    response = self.client.chat_completion(
+                        messages=messages,
+                        model=self.settings.get('model', 'mistral')
+                    )
+                    processed_text = response['message']['content']
+                else:  # Use generate endpoint for text-only
+                    response = self.client.generate_response(
+                        prompt=prompt,
+                        model=self.settings.get('model', 'mistral')
+                    )
+                    processed_text = response
             else:  # LM Studio
                 messages = [{"role": "system", "content": prompt}]
                 response = self.client.chat_completion(
@@ -565,17 +566,16 @@ class FloatingToolbarModule(QMainWindow):
             
             logger.debug("Received response from LLM")
             
-            # Emit processed text
-            self.text_processed.emit(processed_text)
-            self.progress_updated.emit(100)  # Signal completion
-            
+            # Handle quick review display if enabled
+            if quick_review:
+                self.quick_review_text.emit(processed_text)
+            else:
+                # Emit processed text for normal handling
+                self.text_processed.emit(processed_text)
+
         except Exception as e:
-            error_msg = f"Error processing text: {str(e)}"
-            logger.error(error_msg)
-            self.show_error.emit(error_msg)
-        finally:
-            self.processing = False
-            self.process_complete.emit()
+            logger.error(f"Error in text processing thread: {e}")
+            self.processing_error.emit(str(e))
 
     def update_button_state(self):
         """Update button state"""

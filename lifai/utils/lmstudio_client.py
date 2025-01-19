@@ -1,6 +1,7 @@
 import requests
 import json
 import logging
+from typing import Dict, List, Optional, Union
 
 class LMStudioClient:
     def __init__(self, base_url="http://localhost:1234/v1"):
@@ -28,7 +29,10 @@ class LMStudioClient:
             logging.error(f"Error connecting to LM Studio: {e}")
             return ["LM Studio not running"]
 
-    def generate_response(self, prompt, model=None, temperature=0.7):
+    def generate_response(self, prompt: str, model: Optional[str] = None, 
+                         temperature: float = 0.7, 
+                         stream: bool = False,
+                         **kwargs) -> str:
         """
         Generate a response using LM Studio's API
         """
@@ -39,7 +43,8 @@ class LMStudioClient:
                 json={
                     "messages": messages,
                     "temperature": temperature,
-                    "stream": False
+                    "stream": stream,
+                    **kwargs  # Allow passing additional parameters
                 }
             )
             response.raise_for_status()
@@ -55,18 +60,45 @@ class LMStudioClient:
             logging.error(f"Error generating response from LM Studio: {e}")
             raise
 
-    def chat_completion(self, messages, model=None, temperature=0.7):
+    def chat_completion(self, messages: List[Dict], 
+                       model: Optional[str] = None,
+                       temperature: float = 0.7,
+                       stream: bool = False,
+                       **kwargs) -> Dict:
+        """
+        Generate a chat completion using OpenAI-compatible endpoint
+        """
         try:
             response = requests.post(
                 f"{self.base_url}/chat/completions",
                 json={
                     "messages": messages,
                     "temperature": temperature,
-                    "stream": False
+                    "stream": stream,
+                    **kwargs  # Allow passing additional parameters
                 }
             )
             response.raise_for_status()
             return response.json()
         except Exception as e:
             logging.error(f"Error in LM Studio chat completion: {e}")
+            raise
+
+    def create_embedding(self, input: Union[str, List[str]], 
+                        model: Optional[str] = None) -> Dict:
+        """
+        Generate embeddings using OpenAI-compatible endpoint
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/embeddings",
+                json={
+                    "input": input,
+                    "model": model
+                }
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logging.error(f"Error generating embeddings: {e}")
             raise 
