@@ -25,20 +25,15 @@ llm_prompts = {
         "template": "You are a professional translator. Please translate the following text to Chinese. Keep the translation natural and fluent:\n\n{text}",
         "use_rag": False,
         "quick_review": True
-    },
-    "test": {
-        "template": "tell me what do you see in this photo",
-        "use_rag": False,
-        "quick_review": True
     }
 }
 
 # Prompt display order
 prompt_order = [
     "✨ Default Enhance",
+    "🌐 Quick Translate",
     "🔍 Default RAG",
     "⚡ enhance",
-    "🔮 rag 3",
-    "🌐 Quick Translate",
-    "test"
+    "🚀 enhance rag",
+    "🔮 rag 3"
 ]

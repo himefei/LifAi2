@@ -1,1 +1,1 @@
-{"last_model": "llava-phi3:latest", "backend": "ollama"}
+{"last_model": "falcon3-3b-instruct", "backend": "lmstudio"}
