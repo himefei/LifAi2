@@ -103,7 +103,7 @@ class TextDisplayWindow(QMainWindow):
         
         # Calculate and set window height based on content
         doc_height = self.text_display.document().size().height()
-        window_height = min(doc_height + 80, 600)  # +80 for margins and title bar
+        window_height = int(min(doc_height + 80, 600))  # +80 for margins and title bar, cast to int
         self.setFixedHeight(max(window_height, 150))  # Minimum height 150px
 
     def updatePosition(self):
