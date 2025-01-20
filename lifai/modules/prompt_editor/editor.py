@@ -471,8 +471,11 @@ Please process this text:
             if old_name in self.prompts_data['templates']:
                 # Create new name with new emoji
                 words = current_text.split()
-                words[0] = emoji
-                new_name = " ".join(words)
+                if words:
+                    words[0] = emoji
+                    new_name = " ".join(words)
+                else:
+                    new_name = emoji
                 
                 # Move the template data to the new name
                 self.prompts_data['templates'][new_name] = self.prompts_data['templates'].pop(old_name)
@@ -498,8 +501,11 @@ Please process this text:
         else:
             # Replace existing emoji
             words = current_text.split()
-            words[0] = emoji
-            new_text = " ".join(words)
+            if words:
+                words[0] = emoji
+                new_text = " ".join(words)
+            else:
+                new_text = emoji
             self.name_entry.setText(new_text)
             self.name_entry.setCursorPosition(len(emoji) + 1)
 
