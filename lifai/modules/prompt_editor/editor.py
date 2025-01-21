@@ -355,10 +355,21 @@ Please process this text:
             with open(self.prompts_file, 'w', encoding='utf-8') as f:
                 f.write("# Auto-generated prompt templates\n\n")
                 f.write("llm_prompts = ")
-                f.write(json.dumps(self.prompts_data['templates'], indent=4, ensure_ascii=False))
+                # Format the dictionary with proper Python syntax
+                f.write("llm_prompts = {\n")
+                for name, data in self.prompts_data['templates'].items():
+                    f.write(f"    {repr(name)}: {{\n")
+                    f.write(f"        'template': {repr(data['template'])},\n")
+                    f.write(f"        'use_rag': {str(data['use_rag'])},\n")
+                    f.write(f"        'quick_review': {str(data['quick_review'])}\n")
+                    f.write("    },\n")
+                f.write("}\n")
                 f.write("\n\n# Prompt display order\n")
                 f.write("prompt_order = ")
-                f.write(json.dumps(self.prompts_data['order'], indent=4, ensure_ascii=False))
+                f.write("prompt_order = [\n")
+                for name in self.prompts_data['order']:
+                    f.write(f"    {repr(name)},\n")
+                f.write("]\n")
                 
             logger.info("Saved prompts successfully")
             return True
