@@ -2,7 +2,7 @@
 
 ### A hub to invoke a flocating toolbar to enhance text with RAG support
 
-# Now supports DeepSeek R1 models and its distilled models which auto filter out their chain of thoughts when replacing text
+### Now added Chain of Thoughts filtering function, so DeepSeek Ri1 model and its distilled models can work better when replacing/enhancing text
 
 ![Hub Screenshot](assets/hub2.png)
 
