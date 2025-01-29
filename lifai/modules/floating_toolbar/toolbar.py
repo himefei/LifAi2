@@ -605,6 +605,27 @@ class FloatingToolbarModule(QMainWindow):
         except Exception as e:
             logger.error(f"Error updating button state: {e}")
 
+    def _filter_reasoning_chain(self, text: str) -> str:
+        """Filter out reasoning model's chain of thoughts.
+        
+        Args:
+            text: Input text that may contain reasoning chains
+            
+        Returns:
+            Text with reasoning chains removed
+        """
+        try:
+            import re
+            # Remove any text between <think> and </think> tags including the tags
+            filtered_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+            # Remove any extra whitespace that may have been left
+            filtered_text = re.sub(r'\n\s*\n', '\n\n', filtered_text)
+            filtered_text = filtered_text.strip()
+            return filtered_text
+        except Exception as e:
+            logger.error(f"Error filtering reasoning chain: {e}")
+            return text
+
     def _handle_processed_text(self, text: str):
         """Handle processed text in the main thread"""
         try:
@@ -619,16 +640,19 @@ class FloatingToolbarModule(QMainWindow):
             
             logger.debug(f"Handling processed text for prompt '{current_prompt}' (quick_review={is_quick_review})")
             
+            # Filter out reasoning chains
+            filtered_text = self._filter_reasoning_chain(text)
+            
             if is_quick_review:
                 # Show in text window
-                self.text_window.setText(text)
+                self.text_window.setText(filtered_text)
                 self.text_window.updatePosition()
                 self.text_window.show()
                 logger.debug("Showing text in display window")
             else:
                 # Replace selected text as before
                 logger.info("Replacing selected text...")
-                self.clipboard.replace_selected_text(text)
+                self.clipboard.replace_selected_text(filtered_text)
                 logger.info("Text replacement complete")
                 
         except Exception as e:
