@@ -2,13 +2,15 @@
 
 ### A hub to invoke a flocating toolbar to enhance text with RAG support
 
+# Now supports DeepSeek R1 models and its distilled models which auto filter out their chain of thoughts when replacing text
+
 ![Hub Screenshot](assets/hub2.png)
 
 ## 🚀 Requirements
 
 - **Python**: Version 3.10 required
 - **OLLAMA** or **LM Studio**: For running local LLMs
-- **Operating System**: Windows/Linux/MacOS
+- **Operating System**: Windows/MacOS
 
 ## 📥 Installation
 
