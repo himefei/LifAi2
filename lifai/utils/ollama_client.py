@@ -50,9 +50,10 @@ class OllamaClient:
             logger.error(f"Error fetching models: {str(e)}")
             return []
 
-    def generate_response(self, model: str, prompt: str, stream: bool = False, 
-                         format: Optional[Union[str, Dict]] = None, 
-                         options: Optional[Dict] = None) -> str:
+    def generate_response(self, model: str, prompt: str, stream: bool = False,
+                          format: Optional[Union[str, Dict]] = None,
+                          options: Optional[Dict] = None,
+                          temperature: Optional[float] = None) -> str:
         """Generate a response from the model with enhanced features"""
         try:
             url = f"{self.base_url}/api/generate"
@@ -65,6 +66,16 @@ class OllamaClient:
             # Add optional parameters if provided
             if format:
                 data["format"] = format
+
+            # Initialize options dictionary if not provided
+            if not options:
+                options = {}
+            
+            # Add temperature to options if provided
+            if temperature is not None:
+                options["temperature"] = temperature
+            
+            # Add options to data if not empty
             if options:
                 data["options"] = options
             
@@ -86,10 +97,11 @@ class OllamaClient:
         except Exception as e:
             raise Exception(f"Error generating response: {str(e)}")
 
-    def chat_completion(self, model: str, messages: List[Dict], 
-                       stream: bool = False, 
-                       format: Optional[Union[str, Dict]] = None,
-                       options: Optional[Dict] = None) -> Dict:
+    def chat_completion(self, model: str, messages: List[Dict],
+                        stream: bool = False,
+                        format: Optional[Union[str, Dict]] = None,
+                        options: Optional[Dict] = None,
+                        temperature: Optional[float] = None) -> Dict:
         """Generate a chat completion using the new chat API"""
         try:
             url = f"{self.base_url}/api/chat"
@@ -101,6 +113,16 @@ class OllamaClient:
             
             if format:
                 data["format"] = format
+            
+            # Initialize options dictionary if not provided
+            if not options:
+                options = {}
+            
+            # Add temperature to options if provided
+            if temperature is not None:
+                options["temperature"] = temperature
+            
+            # Add options to data if not empty
             if options:
                 data["options"] = options
 
