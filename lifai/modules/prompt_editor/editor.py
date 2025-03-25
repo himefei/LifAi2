@@ -223,12 +223,43 @@ Please process this text:
         self.quick_review_checkbox.setChecked(quick_review)
 
     def new_prompt(self):
-        """Clear the editor for a new prompt"""
-        self.name_entry.clear()
+        """Create a new empty prompt"""
+        # Generate a unique temporary name
+        base_name = "New Prompt"
+        counter = 1
+        temp_name = f"✨ {base_name}"
+        
+        # Ensure name is unique
+        while temp_name in self.prompts_data['templates']:
+            counter += 1
+            temp_name = f"✨ {base_name} {counter}"
+        
+        # Create new empty prompt data
+        self.prompts_data['templates'][temp_name] = {
+            'template': '',
+            'use_rag': False,
+            'quick_review': False
+        }
+        
+        # Add to order list if not already present
+        if temp_name not in self.prompts_data['order']:
+            self.prompts_data['order'].append(temp_name)
+        
+        # Update UI
+        self.refresh_list()
+        self.name_entry.setText(temp_name)
         self.template_text.clear()
         self.rag_checkbox.setChecked(False)
         self.quick_review_checkbox.setChecked(False)
-        self.prompts_list.clearSelection()
+        
+        # Select the new prompt and focus name field
+        items = self.prompts_list.findItems(temp_name, Qt.MatchFlag.MatchExactly)
+        if items:
+            self.prompts_list.setCurrentItem(items[0])
+        self.name_entry.setFocus()
+        
+        # Mark changes as unsaved
+        self.mark_unsaved_changes()
 
     def show_error(self, message: str):
         """Show error message dialog"""
@@ -261,15 +292,48 @@ Please process this text:
                 if base_name in self.default_emojis:
                     name = f"{self.default_emojis[base_name]} {base_name}"
             
-            # Update prompt with RAG and quick review settings
-            self.prompts_data['templates'][name] = {
+            # If this is a new prompt (not in templates yet), add it
+            if name not in self.prompts_data['templates']:
+                self.prompts_data['templates'][name] = {
+                    'template': prompt,
+                    'use_rag': self.rag_checkbox.isChecked(),
+                    'quick_review': self.quick_review_checkbox.isChecked()
+                }
+                if name not in self.prompts_data['order']:
+                    self.prompts_data['order'].append(name)
+            
+            # Check if this is a rename of an existing prompt
+            current_item = self.prompts_list.currentItem()
+            old_name = current_item.text() if current_item else None
+            
+            # Update prompt data
+            prompt_data = {
                 'template': prompt,
                 'use_rag': self.rag_checkbox.isChecked(),
                 'quick_review': self.quick_review_checkbox.isChecked()
             }
             
-            # Update list
+            # Handle rename case
+            if old_name and old_name in self.prompts_data['templates'] and old_name != name:
+                # Remove old entry and add new one
+                self.prompts_data['templates'].pop(old_name)
+                # Update order if needed
+                if old_name in self.prompts_data['order']:
+                    idx = self.prompts_data['order'].index(old_name)
+                    self.prompts_data['order'][idx] = name
+            
+            # Add/update the prompt
+            self.prompts_data['templates'][name] = prompt_data
+            
+            # Add to order if new
+            if name not in self.prompts_data['order']:
+                self.prompts_data['order'].append(name)
+            
+            # Update list and select the saved prompt
             self.refresh_list()
+            items = self.prompts_list.findItems(name, Qt.MatchFlag.MatchExactly)
+            if items:
+                self.prompts_list.setCurrentItem(items[0])
             
             # Mark changes as unsaved
             self.mark_unsaved_changes()
@@ -292,9 +356,22 @@ Please process this text:
                                    QMessageBox.StandardButton.No)
                                    
         if reply == QMessageBox.StandardButton.Yes:
+            # Remove from templates and order
             self.prompts_data['templates'].pop(name, None)
+            if name in self.prompts_data['order']:
+                self.prompts_data['order'].remove(name)
+            
+            # Remove from list and clear selection
             self.prompts_list.takeItem(self.prompts_list.row(current))
-            self.new_prompt()
+            self.prompts_list.clearSelection()
+            
+            # Clear editor fields
+            self.name_entry.clear()
+            self.template_text.clear()
+            self.rag_checkbox.setChecked(False)
+            self.quick_review_checkbox.setChecked(False)
+            
+            # Mark changes and update status
             self.mark_unsaved_changes()
             self.status_label.setText("Prompt deleted. Click 'Apply Changes' to update all modules.")
 
@@ -344,31 +421,49 @@ Please process this text:
             self.show_error(f"Failed to apply changes: {e}")
 
     def save_prompts_to_file(self):
-        """Save prompts and their order to file"""
+        """Save prompts and their order to file
+        
+        Creates timestamped backups by default (can be disabled via settings)
+        """
         try:
-            # Create backup
-            if os.path.exists(self.prompts_file):
+            # Create backup if enabled in settings (default True)
+            if os.path.exists(self.prompts_file) and self.settings.get('prompt_backups', True):
                 backup_path = f"{self.prompts_file}.{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
                 os.rename(self.prompts_file, backup_path)
             
             # Write new content
             with open(self.prompts_file, 'w', encoding='utf-8') as f:
                 f.write("# Auto-generated prompt templates\n\n")
-                f.write("llm_prompts = ")
-                # Format the dictionary with proper Python syntax
+                
+                # Write prompts dictionary
                 f.write("llm_prompts = {\n")
+                # Write prompts in order first
+                ordered_prompts = []
+                for name in self.prompts_data['order']:
+                    if name in self.prompts_data['templates']:
+                        ordered_prompts.append((name, self.prompts_data['templates'][name]))
+                
+                # Then add any remaining prompts not in order
+                remaining_prompts = []
                 for name, data in self.prompts_data['templates'].items():
+                    if name not in self.prompts_data['order']:
+                        remaining_prompts.append((name, data))
+                
+                # Write all prompts
+                for name, data in ordered_prompts + remaining_prompts:
                     f.write(f"    {repr(name)}: {{\n")
                     f.write(f"        'template': {repr(data['template'])},\n")
                     f.write(f"        'use_rag': {str(data['use_rag'])},\n")
                     f.write(f"        'quick_review': {str(data['quick_review'])}\n")
                     f.write("    },\n")
-                f.write("}\n")
-                f.write("\n\n# Prompt display order\n")
-                f.write("prompt_order = ")
+                f.write("}\n\n")
+                
+                # Write prompt order
+                f.write("# Prompt display order\n")
                 f.write("prompt_order = [\n")
                 for name in self.prompts_data['order']:
-                    f.write(f"    {repr(name)},\n")
+                    if name in self.prompts_data['templates']:
+                        f.write(f"    {repr(name)},\n")
                 f.write("]\n")
                 
             logger.info("Saved prompts successfully")
@@ -519,5 +614,3 @@ Please process this text:
                 new_text = emoji
             self.name_entry.setText(new_text)
             self.name_entry.setCursorPosition(len(emoji) + 1)
-
-    
