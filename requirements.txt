@@ -25,3 +25,6 @@ transformers>=4.36.0
 langchain-huggingface>=0.0.10
 langchain-chroma>=0.0.10
 faiss-cpu>=1.7.4
+# Added for async operations in refactoring
+aiofiles>=23.2.1
+httpx>=0.25.0

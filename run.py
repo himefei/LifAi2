@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 import os
 import sys
+import warnings
+
+# Suppress the tracemalloc warning
+warnings.filterwarnings("ignore", message="Enable tracemalloc to get the object allocation traceback")
 
 # Add project root to Python path
 project_root = os.path.abspath(os.path.dirname(__file__))

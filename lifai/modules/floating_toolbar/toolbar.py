@@ -577,7 +577,7 @@ class FloatingToolbarModule(QMainWindow):
                 processed_text = response
             else:  # LM Studio
                 messages = [{"role": "system", "content": prompt}]
-                response = self.client.chat_completion(
+                response = self.client.chat_completion_sync(
                     messages=messages,
                     model=self.settings.get('model', 'mistral'),
                     temperature=0.7

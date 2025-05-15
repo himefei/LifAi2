@@ -49,6 +49,24 @@ class LMStudioClient:
         except Exception as e:
             logger.error(f"Error connecting to LM Studio: {e}")
             return ["LM Studio not running"]
+            
+    def fetch_models_sync(self) -> List[str]:
+        """
+        Synchronous wrapper for fetch_models.
+        Uses asyncio to run the async method in the current thread.
+        """
+        try:
+            # Always create a new event loop for thread safety
+            # This handles the case where we're in a new thread without an event loop
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(self.fetch_models())
+            finally:
+                new_loop.close()
+        except Exception as e:
+            logger.error(f"Error in fetch_models_sync: {e}")
+            return ["Error fetching models"]
 
     async def generate_response(
         self,
@@ -130,6 +148,31 @@ class LMStudioClient:
         except Exception as e:
             logger.error(f"Error in LM Studio chat completion: {e}")
             raise
+
+    def chat_completion_sync(
+        self,
+        messages: List[Dict],
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        stream: bool = False,
+        format: Optional[Union[str, Dict]] = None
+    ) -> Dict:
+        """
+        Synchronous wrapper for chat_completion.
+        Uses asyncio to run the async method in the current thread.
+        """
+        try:
+            # Always create a new event loop for thread safety
+            # This handles the case where we're in a new thread without an event loop
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(self.chat_completion(messages, model, temperature, stream, format))
+            finally:
+                new_loop.close()
+        except Exception as e:
+            logger.error(f"Error in chat_completion_sync: {e}")
+            raise Exception(f"Error in chat completion: {str(e)}")
 
     async def generate_embeddings(
         self,

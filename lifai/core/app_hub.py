@@ -277,7 +277,7 @@ class LifAi2Hub(QMainWindow):
         try:
             current_model = self.model_combo.currentText()
             client = self.get_active_client()
-            self.settings['models_list'] = client.fetch_models()
+            self.settings['models_list'] = client.fetch_models_sync()
             
             self.model_combo.clear()
             self.model_combo.addItems(self.settings['models_list'])
