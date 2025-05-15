@@ -16,9 +16,10 @@ Features:
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QComboBox, QPushButton, QFrame, QMessageBox,
-                            QTextEdit, QApplication, QGraphicsDropShadowEffect)
-from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect
-from PyQt6.QtGui import QColor, QPalette
+                            QTextEdit, QApplication, QGraphicsDropShadowEffect,
+                            QListWidget, QListWidgetItem, QAbstractItemView, QListView)
+from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect, QEvent
+from PyQt6.QtGui import QColor, QPalette, QDrag, QMouseEvent
 from typing import Dict, List
 from pynput import mouse
 from lifai.utils.ollama_client import OllamaClient
@@ -721,29 +722,46 @@ class FloatingToolbarModule(QMainWindow):
         """
         logger.debug(f"Updating prompts with order: {prompt_order}")
         
+        # Reload prompts from JSON file to get the latest changes
+        from lifai.config.prompts import reload_prompts, llm_prompts
+        updated_prompts, updated_order = reload_prompts()
+        
         if prompt_order is not None:
             self.prompt_order = prompt_order.copy()  # Make a copy to avoid reference issues
-            logger.debug(f"Updated prompt order to: {self.prompt_order}")
+        else:
+            self.prompt_order = updated_order.copy()
+            
+        logger.debug(f"Updated prompt order to: {self.prompt_order}")
         
         if prompt_keys is None:
-            prompt_keys = list(llm_prompts.keys())
+            prompt_keys = list(updated_prompts.keys())
             
         self._update_prompt_combo()
         self.update_button_state()
 
     def _update_prompt_combo(self):
         """Update prompt combo box items in the correct order"""
+        # Get the latest prompts
+        from lifai.config.prompts import llm_prompts, load_all_prompts
+        
         current_text = self.prompt_combo.currentText() if self.prompt_combo.count() > 0 else None
         
         self.prompt_combo.clear()
         
+        # Get all prompts as a list
+        all_prompts = load_all_prompts()
+        
+        # Create a mapping from ID to name
+        id_to_name = {p["id"]: p["name"] for p in all_prompts}
+        
         # Add items in order
         added_items = set()
-        for name in self.prompt_order:
-            if name in llm_prompts:
+        for prompt_id in self.prompt_order:
+            if prompt_id in id_to_name and id_to_name[prompt_id] in llm_prompts:
+                name = id_to_name[prompt_id]
                 self.prompt_combo.addItem(name)
                 added_items.add(name)
-                logger.debug(f"Added prompt in order: {name}")
+                logger.debug(f"Added prompt in order: {name} (ID: {prompt_id})")
         
         # Add any remaining items that weren't in the order
         for name in llm_prompts.keys():

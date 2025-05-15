@@ -49,3 +49,10 @@ def get_prompt_order():
     return data.get("order", [])
 
 prompt_order = get_prompt_order()
+
+def reload_prompts():
+    """Reload prompts from the JSON file and update global variables."""
+    global llm_prompts, prompt_order
+    llm_prompts = get_prompt_dict_by_name()
+    prompt_order = get_prompt_order()
+    return llm_prompts, prompt_order
