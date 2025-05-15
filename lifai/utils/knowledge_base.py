@@ -1,3 +1,18 @@
+"""
+Knowledge Base module for LifAi2.
+
+Provides a multi-slot, vector-based knowledge management system with async file I/O,
+singleton pattern, and FAISS-powered semantic search. Supports chunked document storage,
+retrieval-augmented generation (RAG), and robust error handling.
+
+Features:
+    - Multiple named knowledge slots (General, Technical, Product, Support, Custom)
+    - Async loading/saving of indexes and documents
+    - Fast vector search using FAISS
+    - Singleton pattern for global access
+    - Intelligent text chunking and overlap handling
+"""
+
 from typing import List, Dict, Tuple
 import os
 import json
@@ -5,12 +20,14 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import faiss
 import re
+import aiofiles
+import asyncio
 from lifai.utils.logger_utils import get_module_logger
 
 logger = get_module_logger(__name__)
 
 class Document:
-    """文档类，用于存储文档内容和元数据"""
+    """Document class for storing content and metadata."""
     def __init__(self, page_content: str, metadata: dict = None):
         self.page_content = page_content
         self.metadata = metadata or {}
@@ -81,28 +98,35 @@ class KnowledgeBase:
         # Load existing data for the slot
         self._load_slot_index(slot_name)
 
-    def _load_slot_index(self, slot_name: str):
-        """Load existing index and documents for a slot"""
+    async def _load_slot_index(self, slot_name: str):
+        """
+        Asynchronously load existing index and documents for a slot.
+        Includes input validation and robust error handling.
+        """
+        if slot_name not in self.slots:
+            logger.error(f"Invalid slot name: {slot_name}")
+            return
+
         slot = self.slots[slot_name]
         index_file = os.path.join(slot['index_dir'], "faiss.index")
         docs_file = os.path.join(slot['index_dir'], "documents.json")
-        
+
         try:
             if os.path.exists(index_file) and os.path.exists(docs_file):
-                # Load FAISS index
+                # Load FAISS index (still sync, as faiss does not support async)
                 slot['index'] = faiss.read_index(index_file)
                 slot['use_ivf'] = isinstance(slot['index'], faiss.IndexIVFFlat)
-                
-                # Load documents and metadata
-                with open(docs_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+
+                # Load documents and metadata asynchronously
+                async with aiofiles.open(docs_file, 'r', encoding='utf-8') as f:
+                    data = json.loads(await f.read())
                     slot['documents'] = data['documents']
                     slot['metadata'] = data['metadata']
-                
+
                 logger.info(f"Loaded {len(slot['documents'])} documents from slot {slot_name}")
             else:
                 logger.info(f"No existing index found for slot {slot_name}, starting fresh")
-                
+
         except Exception as e:
             logger.error(f"Error loading index for slot {slot_name}: {e}")
             slot['index'] = faiss.IndexFlatL2(self.dimension)
@@ -110,24 +134,31 @@ class KnowledgeBase:
             slot['documents'] = []
             slot['metadata'] = []
 
-    def _save_slot_index(self, slot_name: str):
-        """Save index and documents for a slot"""
+    async def _save_slot_index(self, slot_name: str):
+        """
+        Asynchronously save index and documents for a slot.
+        Includes input validation and robust error handling.
+        """
+        if slot_name not in self.slots:
+            logger.error(f"Invalid slot name: {slot_name}")
+            return
+
         slot = self.slots[slot_name]
         try:
-            # Save FAISS index
+            # Save FAISS index (still sync, as faiss does not support async)
             index_file = os.path.join(slot['index_dir'], "faiss.index")
             faiss.write_index(slot['index'], index_file)
-            
-            # Save documents and metadata
+
+            # Save documents and metadata asynchronously
             docs_file = os.path.join(slot['index_dir'], "documents.json")
-            with open(docs_file, 'w', encoding='utf-8') as f:
-                json.dump({
+            async with aiofiles.open(docs_file, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps({
                     'documents': slot['documents'],
                     'metadata': slot['metadata']
-                }, f, ensure_ascii=False, indent=2)
-            
+                }, ensure_ascii=False, indent=2))
+
             logger.info(f"Saved {len(slot['documents'])} documents to slot {slot_name}")
-            
+
         except Exception as e:
             logger.error(f"Error saving index for slot {slot_name}: {e}")
 

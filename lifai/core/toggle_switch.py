@@ -1,9 +1,17 @@
+"""
+ToggleSwitch: Custom Tkinter toggle switch widget for LifAi2.
+
+Provides a modern, animated toggle switch with observer pattern support for UI state changes.
+Features smooth animation, custom styling, and callback integration for modular UI components.
+"""
+
 import tkinter as tk
 from tkinter import ttk
 import logging
 import time
 
 class ToggleSwitch(ttk.Frame):
+    """A modern, animated toggle switch widget with observer/callback support."""
     def __init__(self, parent, text, command=None, width=60, height=28):
         super().__init__(parent)
         
@@ -134,15 +142,18 @@ class ToggleSwitch(ttk.Frame):
         animate_step(0)
 
     def _toggle(self, event=None):
+        # Debounce: Ignore toggle if animation is running to prevent rapid toggling.
         if self.animation_running:
+            # Optionally, log or print for debugging
+            # print("Toggle ignored: animation in progress")
             return
-            
+
         self.enabled.set(not self.enabled.get())
-        
+
         # Calculate start and end positions
         start_pos = self.circle_pos
         end_pos = self.width - self.height + 2 if self.enabled.get() else 6
-        
+
         # Start animation
         self._animate_switch(start_pos, end_pos)
 

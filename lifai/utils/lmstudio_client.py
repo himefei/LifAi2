@@ -1,44 +1,65 @@
-import requests
+"""
+LMStudioClient: Async Python client for interacting with LM Studio's local LLM API.
+
+This module provides asynchronous methods for model listing, chat completions, and embeddings
+using LM Studio's HTTP API. Designed for robust error handling, performance, and integration
+with LifAi2's modular architecture.
+
+Features:
+    - Async HTTP requests for non-blocking UI and fast response.
+    - Comprehensive error handling and logging.
+    - Support for streaming responses and flexible API parameters.
+"""
+
+import httpx
 import json
 import logging
+import asyncio
 from typing import List, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
 
 class LMStudioClient:
+    """Async client for LM Studio's local LLM API (chat, models, embeddings)."""
     def __init__(self, base_url="http://localhost:1234/v1"):
         self.base_url = base_url
         self.default_headers = {
             "Content-Type": "application/json"
         }
 
-    def fetch_models(self) -> List[str]:
+    async def fetch_models(self) -> List[str]:
         """
-        Fetch available models from LM Studio API
+        Asynchronously fetch available models from LM Studio API.
         """
         try:
-            response = requests.get(f"{self.base_url}/models")
-            if response.status_code == 200:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{self.base_url}/models", timeout=10)
+                response.raise_for_status()
                 models_data = response.json()
                 model_names = []
                 for model in models_data.get('data', []):
                     model_id = model.get('id', '')
                     if model_id:
                         model_names.append(model_id)
-                logging.info(f"Found {len(model_names)} models in LM Studio")
+                logger.info(f"Found {len(model_names)} models in LM Studio")
                 return model_names if model_names else ["No models found"]
-            else:
-                logging.error(f"Failed to fetch models from LM Studio: {response.status_code}")
-                return ["LM Studio connection error"]
+        except httpx.RequestError as e:
+            logger.error(f"HTTP error connecting to LM Studio: {e}")
+            return ["LM Studio connection error"]
         except Exception as e:
-            logging.error(f"Error connecting to LM Studio: {e}")
+            logger.error(f"Error connecting to LM Studio: {e}")
             return ["LM Studio not running"]
 
-    def generate_response(self, prompt: str, model: Optional[str] = None, 
-                         temperature: float = 0.7, stream: bool = False,
-                         format: Optional[Union[str, Dict]] = None) -> str:
+    async def generate_response(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        stream: bool = False,
+        format: Optional[Union[str, Dict]] = None
+    ) -> str:
         """
-        Generate a response using LM Studio's API with enhanced features
+        Asynchronously generate a response using LM Studio's API with enhanced features.
         """
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -47,39 +68,40 @@ class LMStudioClient:
                 "temperature": temperature,
                 "stream": stream
             }
-
             if format:
                 data["response_format"] = {"type": format} if isinstance(format, str) else format
 
-            response = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=self.default_headers,
-                json=data,
-                stream=stream
-            )
-            response.raise_for_status()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=self.default_headers,
+                    json=data,
+                    timeout=30
+                )
+                response.raise_for_status()
 
-            if stream:
-                return self._handle_stream_response(response)
-            
-            result = response.json()
-            if 'choices' in result and len(result['choices']) > 0:
-                return result['choices'][0]['message']['content'].strip()
-            else:
-                raise Exception("No response content received from LM Studio")
-                
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Request error: {e}")
+                result = response.json()
+                if 'choices' in result and len(result['choices']) > 0:
+                    return result['choices'][0]['message']['content'].strip()
+                else:
+                    raise Exception("No response content received from LM Studio")
+        except httpx.RequestError as e:
+            logger.error(f"HTTP request error: {e}")
             raise Exception(f"LM Studio request failed: {str(e)}")
         except Exception as e:
-            logging.error(f"Error generating response from LM Studio: {e}")
+            logger.error(f"Error generating response from LM Studio: {e}")
             raise
 
-    def chat_completion(self, messages: List[Dict], model: Optional[str] = None,
-                       temperature: float = 0.7, stream: bool = False,
-                       format: Optional[Union[str, Dict]] = None) -> Dict:
+    async def chat_completion(
+        self,
+        messages: List[Dict],
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        stream: bool = False,
+        format: Optional[Union[str, Dict]] = None
+    ) -> Dict:
         """
-        Generate a chat completion with enhanced features
+        Asynchronously generate a chat completion with enhanced features.
         """
         try:
             data = {
@@ -87,30 +109,35 @@ class LMStudioClient:
                 "temperature": temperature,
                 "stream": stream
             }
-
             if format:
                 data["response_format"] = {"type": format} if isinstance(format, str) else format
 
-            response = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=self.default_headers,
-                json=data,
-                stream=stream
-            )
-            response.raise_for_status()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=self.default_headers,
+                    json=data,
+                    timeout=30
+                )
+                response.raise_for_status()
 
-            if stream:
-                return self._handle_stream_response(response)
-            return response.json()
-
+                if stream:
+                    return await self._handle_stream_response(response)
+                return response.json()
+        except httpx.RequestError as e:
+            logger.error(f"HTTP request error in LM Studio chat completion: {e}")
+            raise Exception(f"LM Studio chat completion failed: {str(e)}")
         except Exception as e:
-            logging.error(f"Error in LM Studio chat completion: {e}")
+            logger.error(f"Error in LM Studio chat completion: {e}")
             raise
 
-    def generate_embeddings(self, input_text: Union[str, List[str]], 
-                          model: Optional[str] = None) -> Dict:
+    async def generate_embeddings(
+        self,
+        input_text: Union[str, List[str]],
+        model: Optional[str] = None
+    ) -> Dict:
         """
-        Generate embeddings using LM Studio's API
+        Asynchronously generate embeddings using LM Studio's API.
         """
         try:
             data = {
@@ -119,25 +146,30 @@ class LMStudioClient:
             if model:
                 data["model"] = model
 
-            response = requests.post(
-                f"{self.base_url}/embeddings",
-                headers=self.default_headers,
-                json=data
-            )
-            response.raise_for_status()
-            return response.json()
-
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/embeddings",
+                    headers=self.default_headers,
+                    json=data,
+                    timeout=30
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.RequestError as e:
+            logger.error(f"HTTP request error generating embeddings: {e}")
+            raise Exception(f"LM Studio embeddings request failed: {str(e)}")
         except Exception as e:
-            logging.error(f"Error generating embeddings: {e}")
+            logger.error(f"Error generating embeddings: {e}")
             raise
 
-    def _handle_stream_response(self, response) -> str:
-        """Handle streaming responses from the API"""
+    async def _handle_stream_response(self, response: httpx.Response) -> str:
+        """
+        Asynchronously handle streaming responses from the API.
+        """
         try:
             full_response = ""
-            for line in response.iter_lines():
+            async for line in response.aiter_lines():
                 if line:
-                    line = line.decode('utf-8')
                     if line.startswith('data: '):
                         json_str = line[6:]  # Remove 'data: ' prefix
                         try:

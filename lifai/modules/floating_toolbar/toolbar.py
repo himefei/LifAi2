@@ -1,3 +1,19 @@
+"""
+Floating Toolbar Module for LifAi2.
+
+Provides a floating, always-on-top toolbar for text enhancement, prompt selection, and
+quick review using local LLMs (Ollama/LM Studio). Implements observer pattern for UI updates,
+threaded selection and processing, and modular integration with the knowledge base and prompt system.
+
+Features:
+    - Floating, draggable, and minimizable toolbar UI (PyQt6)
+    - Prompt selection and management (integrates with Prompt Editor)
+    - Asynchronous text selection and processing (threaded, non-blocking)
+    - Quick review drawer and animated UI elements
+    - Observer pattern for UI state and signal/slot communication
+    - Modular integration with LLM clients and knowledge base
+"""
+
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QComboBox, QPushButton, QFrame, QMessageBox,
                             QTextEdit, QApplication, QGraphicsDropShadowEffect)
@@ -17,6 +33,7 @@ import logging
 logger = get_module_logger(__name__)
 
 class TextDisplayWindow(QMainWindow):
+    """Popup window for displaying processed text results with dynamic positioning."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
@@ -428,46 +445,50 @@ class FloatingToolbarModule(QMainWindow):
             self.is_selecting = False  # 标记是否正在进行选择操作
             
             def on_click(x, y, button, pressed):
+                # Debounce/throttle logic:
+                # Only trigger selection if the mouse is held for >0.5s (long press)
+                # and the mouse is moved more than 10px before release.
+                # This prevents rapid or accidental clicks from triggering selection.
                 if button == mouse.Button.left:
                     if pressed:
-                        # 记录鼠标按下的时间和位置
+                        # Record mouse down time and position
                         self.mouse_down = True
                         self.mouse_down_time = time.time()
                         self.mouse_down_pos = (x, y)
-                        
-                        # 启动一个线程来检测长按
+
+                        # Start a thread to check for long press
                         def check_long_press():
-                            time.sleep(0.5)  # 等待0.5秒
-                            if self.mouse_down:  # 如果鼠标还在按下状态
+                            time.sleep(0.5)  # Wait 0.5s
+                            if self.mouse_down:  # If still pressed, treat as long press
                                 self.is_selecting = True
                                 logger.debug("Long press detected, user is selecting text...")
-                        
+
                         threading.Thread(target=check_long_press, daemon=True).start()
-                        
-                    else:  # 鼠标释放
+
+                    else:  # Mouse released
                         if self.mouse_down and self.is_selecting:
-                            # 计算鼠标移动距离
+                            # Calculate mouse movement distance
                             current_pos = (x, y)
-                            move_distance = ((current_pos[0] - self.mouse_down_pos[0]) ** 2 + 
+                            move_distance = ((current_pos[0] - self.mouse_down_pos[0]) ** 2 +
                                           (current_pos[1] - self.mouse_down_pos[1]) ** 2) ** 0.5
-                            
-                            # 如果确实发生了移动
-                            if move_distance > 10:  # 10像素的移动阈值
+
+                            # Only trigger if moved more than 10px (movement threshold)
+                            if move_distance > 10:
                                 selected_text = self.clipboard.get_selected_text()
                                 if selected_text:
                                     logger.debug(f"Selection complete, moved {move_distance:.1f}px: {selected_text[:100]}...")
                                     self.waiting_for_selection = False
-                                    # 在新线程中处理文本
+                                    # Process text in a new thread
                                     threading.Thread(
                                         target=self._process_text_thread,
                                         args=(selected_text,),
                                         daemon=True
                                     ).start()
-                                    return False  # 停止监听
+                                    return False  # Stop listener
                             else:
                                 logger.debug(f"Ignored selection without movement ({move_distance:.1f}px)")
-                                
-                        # 重置状态
+
+                        # Reset state variables (note: thread safety may be needed if accessed from multiple threads)
                         self.mouse_down = False
                         self.is_selecting = False
                         self.mouse_down_time = None

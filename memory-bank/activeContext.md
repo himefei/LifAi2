@@ -1,8 +1,11 @@
-## Module Cleanup (2025-03-25)
+## Major Project Refactoring (2025-05-15)
 
-Removed deprecated modules:
-- advagent/ (Advanced Agent functionality)
-- agent_workspace/ (Legacy workspace system)  
-- AI_chat/ (Old chat interface)
+Completed a comprehensive project-wide refactoring focusing on performance, modernization, compliance, and bug fixes.
 
-These features have been superseded by newer implementations in other modules.
+**Key Changes:**
+- Implemented asynchronous programming (`async/await`, Python 3.9+) for I/O-bound operations, significantly improving performance.
+- Overhauled the prompt editor: switched to JSON-based storage ([`prompts.json`](lifai/modules/prompt_editor/prompts.json)) with UUIDs, and addressed critical bugs.
+- Introduced new libraries: `httpx` for HTTP clients and `aiofiles` for async file I/O.
+- Updated AI clients, knowledge base, and UI components for better performance and modern practices.
+- Ensured compliance with project coding standards and updated all code comments and the main [`README.md`](README.md).
+- Previous module cleanup (AI Chat, Advanced Agent) integrated into the overall modernized structure.

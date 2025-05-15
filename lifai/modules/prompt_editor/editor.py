@@ -1,23 +1,35 @@
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                            QLabel, QLineEdit, QPlainTextEdit, QPushButton, QListWidget,
-                            QFrame, QMessageBox, QFileDialog, QCheckBox, QListWidgetItem,
-                            QMenu, QToolButton)
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent
-from typing import Dict, Callable
-import json
+"""
+Prompt Editor Module for LifAi2
+
+This module provides a robust, GUI-based prompt editor for managing AI prompts in LifAi2.
+Prompts are stored in a JSON file for transparency, backup, and easy customization.
+The editor supports drag-and-drop reordering, emoji labeling, and advanced template editing.
+Implements modular, plugin-style architecture and robust error handling.
+"""
+
 import os
+import json
+import uuid
 from datetime import datetime
+from typing import Dict, Callable
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+    QPushButton, QListWidget, QFrame, QMessageBox, QCheckBox, QMenu, QToolButton, QListWidgetItem
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 from lifai.utils.logger_utils import get_module_logger
-from lifai.config.prompts import llm_prompts
 
 logger = get_module_logger(__name__)
 
-# Get available prompts from llm_prompts
-improvement_options = list(llm_prompts.keys())
+PROMPTS_JSON = os.path.join(os.path.dirname(__file__), "prompts.json")
 
 class OrderedListWidget(QListWidget):
-    """Custom QListWidget that supports drag and drop reordering"""
+    """
+    Custom QListWidget that supports drag and drop reordering.
+
+    Used in the prompt editor to allow users to reorder prompts visually.
+    """
     def __init__(self):
         super().__init__()
         self.setDragDropMode(QListWidget.DragDropMode.InternalMove)
@@ -25,20 +37,28 @@ class OrderedListWidget(QListWidget):
         self.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
 
 class PromptEditorWindow(QMainWindow):
+    """
+    Main window for the Prompt Editor.
+
+    Provides a GUI for creating, editing, reordering, and managing AI prompts.
+    Integrates with JSON storage for persistence and backup.
+    Supports emoji labeling, RAG/Quick Review toggles, and modular update callbacks.
+    """
     def __init__(self, settings: Dict):
+        """
+        Initialize the Prompt Editor window.
+
+        Args:
+            settings (Dict): Application settings, including backup preferences.
+        """
         super().__init__()
         self.settings = settings
-        self.prompts_file = os.path.join(os.path.dirname(__file__), '../../config/prompts.py')
-        
-        # Load saved prompts or use defaults
-        self.prompts_data = {
-            'templates': self.load_saved_prompts(),
-            'order': []  # Store prompt order
-        }
-        self.update_callbacks = []
+        self.prompts_file = PROMPTS_JSON
+        self.prompts_data = self.load_prompts_json()
+        self.update_callbacks = []  # List of functions to notify on prompt changes
         self.has_unsaved_changes = False
-        
-        # Add default emojis for prompts without them
+
+        # Default emojis for prompt types
         self.default_emojis = {
             "Default Enhance": "✨",
             "Default RAG": "🔍",
@@ -46,94 +66,103 @@ class PromptEditorWindow(QMainWindow):
             "enhance rag": "🚀",
             "rag 3": "🎯"
         }
-        
+
         self.setup_ui()
         self.hide()
 
-    def load_saved_prompts(self):
-        """Load prompts from saved file or return defaults"""
+    def load_prompts_json(self):
+        """
+        Load prompts from the JSON file, or initialize if missing/corrupt.
+
+        Returns:
+            dict: Dictionary with 'prompts' and 'order' keys.
+        """
+        if not os.path.exists(self.prompts_file):
+            logger.warning("Prompt JSON file not found, initializing empty prompt set.")
+            return {"prompts": [], "order": []}
         try:
-            if os.path.exists(self.prompts_file):
-                namespace = {}
-                with open(self.prompts_file, 'r', encoding='utf-8') as f:
-                    exec(f.read(), namespace)
-                if 'llm_prompts' in namespace:
-                    logger.info("Loaded saved prompts successfully")
-                    # Load order if available
-                    if hasattr(namespace, 'prompt_order'):
-                        self.prompts_data['order'] = namespace['prompt_order']
-                    return namespace['llm_prompts']
+            with open(self.prompts_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # Validate structure
+            if "prompts" not in data or "order" not in data:
+                raise ValueError("Invalid prompt JSON structure")
+            return data
         except Exception as e:
-            logger.error(f"Error loading saved prompts: {e}")
-        return llm_prompts.copy()
+            logger.error(f"Failed to load prompts.json: {e}")
+            # Return empty structure on error to avoid crashing the editor
+            return {"prompts": [], "order": []}
+
+    def save_prompts_json(self):
+        """
+        Save prompts to the JSON file, with optional backup.
+
+        If backups are enabled in settings, the previous file is renamed with a timestamp.
+        Handles errors gracefully and notifies the user if saving fails.
+
+        Returns:
+            bool: True if save succeeded, False otherwise.
+        """
+        try:
+            if os.path.exists(self.prompts_file) and self.settings.get("prompt_backups", True):
+                backup_path = f"{self.prompts_file}.{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
+                os.rename(self.prompts_file, backup_path)
+            with open(self.prompts_file, "w", encoding="utf-8") as f:
+                json.dump(self.prompts_data, f, indent=2, ensure_ascii=False)
+            logger.info("Saved prompts to JSON successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving prompts to JSON: {e}")
+            self.show_error(f"Failed to save prompts: {e}")
+            return False
 
     def setup_ui(self):
-        """Create the editor window"""
         self.setWindowTitle("Prompt Editor")
         self.resize(800, 600)
-        
-        # Create central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
-        
+
         # Left panel (Prompts list)
         left_panel = QFrame()
         left_panel.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
         left_layout = QVBoxLayout(left_panel)
-        
-        # Prompts list
         left_layout.addWidget(QLabel("Prompts:"))
         self.prompts_list = OrderedListWidget()
         self.prompts_list.currentItemChanged.connect(self.on_prompt_select)
         self.prompts_list.model().rowsMoved.connect(self.on_prompts_reordered)
         left_layout.addWidget(self.prompts_list)
-        
-        # Populate list in saved order if available
         self.refresh_list()
-        
         main_layout.addWidget(left_panel)
-        
+
         # Right panel (Editor)
         right_panel = QFrame()
         right_panel.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
         right_layout = QVBoxLayout(right_panel)
-        
+
         # Name field with emoji picker
         name_layout = QHBoxLayout()
         name_layout.addWidget(QLabel("Name:"))
-        
-        # Add emoji picker button
         self.emoji_btn = QToolButton()
         self.emoji_btn.setText("😀")
         self.emoji_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.emoji_btn.clicked.connect(self.show_emoji_menu)
         name_layout.addWidget(self.emoji_btn)
-        
         self.name_entry = QLineEdit()
         name_layout.addWidget(self.name_entry)
-        
+
         # Add checkboxes in a vertical layout
         checkbox_layout = QVBoxLayout()
-        
-        # Add RAG checkbox
         self.rag_checkbox = QCheckBox("Use RAG (Retrieval)")
         checkbox_layout.addWidget(self.rag_checkbox)
-        
-        # Add quick review checkbox
         self.quick_review_checkbox = QCheckBox("Display as Quick Review")
         checkbox_layout.addWidget(self.quick_review_checkbox)
-        
-        # Add checkbox layout to name layout
         name_layout.addLayout(checkbox_layout)
-        
         right_layout.addLayout(name_layout)
-        
+
         # Help section for placeholders
         help_frame = QFrame()
         help_frame.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
         help_layout = QVBoxLayout(help_frame)
-        
         help_label = QLabel("""<b>Available Placeholders:</b>
 • {text} - The selected text to process
 • {context} - All retrieved knowledge combined
@@ -161,16 +190,18 @@ Please process this text:
         help_label.setWordWrap(True)
         help_layout.addWidget(help_label)
         right_layout.addWidget(help_frame)
-        
+
         # Template editor
         right_layout.addWidget(QLabel("Prompt Template:"))
         self.template_text = QPlainTextEdit()
-        self.template_text.setPlaceholderText("Enter your prompt template here...\nUse {text} for selected text\nUse {context1}, {context2}, etc. for specific knowledge slots\nOr use {context} for all knowledge combined")
+        self.template_text.setPlaceholderText(
+            "Enter your prompt template here...\nUse {text} for selected text\nUse {context1}, {context2}, etc. for specific knowledge slots\nOr use {context} for all knowledge combined"
+        )
         self.template_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        font = QFont("Consolas")  # Use monospace font for better readability
+        font = QFont("Consolas")
         self.template_text.setFont(font)
         right_layout.addWidget(self.template_text)
-        
+
         # Add save and delete buttons
         button_layout = QHBoxLayout()
         new_btn = QPushButton("New Prompt")
@@ -183,7 +214,7 @@ Please process this text:
         button_layout.addWidget(save_btn)
         button_layout.addWidget(delete_btn)
         right_layout.addLayout(button_layout)
-        
+
         # Add status label and apply changes button
         status_layout = QHBoxLayout()
         self.status_label = QLabel("")
@@ -193,419 +224,202 @@ Please process this text:
         status_layout.addWidget(self.status_label)
         status_layout.addWidget(self.apply_btn)
         right_layout.addLayout(status_layout)
-        
+
         main_layout.addWidget(right_panel)
-        
-        # Set size ratio between panels
-        main_layout.setStretch(0, 1)  # Left panel
-        main_layout.setStretch(1, 2)  # Right panel
+        main_layout.setStretch(0, 1)
+        main_layout.setStretch(1, 2)
+
+    def get_prompt_by_id(self, prompt_id):
+        for prompt in self.prompts_data["prompts"]:
+            if prompt["id"] == prompt_id:
+                return prompt
+        return None
+
+    def get_prompt_id_by_name(self, name):
+        for prompt in self.prompts_data["prompts"]:
+            if prompt["name"] == name:
+                return prompt["id"]
+        return None
+
+    def refresh_list(self):
+        self.prompts_list.clear()
+        for prompt_id in self.prompts_data["order"]:
+            prompt = self.get_prompt_by_id(prompt_id)
+            if prompt:
+                item = QListWidgetItem(prompt["name"])
+                item.setData(Qt.ItemDataRole.UserRole, prompt_id)
+                self.prompts_list.addItem(item)
 
     def on_prompt_select(self, current, previous):
-        """Handle prompt selection"""
         if not current:
             return
-            
-        name = current.text()
-        prompt_data = self.prompts_data['templates'].get(name, {})
-        
-        if isinstance(prompt_data, str):  # Handle legacy format
-            template = prompt_data
-            use_rag = False
-            quick_review = False
-        else:
-            template = prompt_data.get('template', '')
-            use_rag = prompt_data.get('use_rag', False)
-            quick_review = prompt_data.get('quick_review', False)
-        
-        self.name_entry.setText(name)
-        self.template_text.setPlainText(template)
-        self.rag_checkbox.setChecked(use_rag)
-        self.quick_review_checkbox.setChecked(quick_review)
+        prompt_id = current.data(Qt.ItemDataRole.UserRole)
+        prompt = self.get_prompt_by_id(prompt_id)
+        if not prompt:
+            return
+        self.name_entry.setText(prompt["name"])
+        self.template_text.setPlainText(prompt.get("template", ""))
+        self.rag_checkbox.setChecked(prompt.get("use_rag", False))
+        self.quick_review_checkbox.setChecked(prompt.get("quick_review", False))
 
     def new_prompt(self):
-        """Create a new empty prompt"""
-        # Generate a unique temporary name
         base_name = "New Prompt"
         counter = 1
         temp_name = f"✨ {base_name}"
-        
-        # Ensure name is unique
-        while temp_name in self.prompts_data['templates']:
+        existing_names = {p["name"] for p in self.prompts_data["prompts"]}
+        while temp_name in existing_names:
             counter += 1
             temp_name = f"✨ {base_name} {counter}"
-        
-        # Create new empty prompt data
-        self.prompts_data['templates'][temp_name] = {
-            'template': '',
-            'use_rag': False,
-            'quick_review': False
+        prompt_id = str(uuid.uuid4())
+        prompt = {
+            "id": prompt_id,
+            "name": temp_name,
+            "template": "",
+            "use_rag": False,
+            "quick_review": False,
+            "emoji": "✨"
         }
-        
-        # Add to order list if not already present
-        if temp_name not in self.prompts_data['order']:
-            self.prompts_data['order'].append(temp_name)
-        
-        # Update UI
+        self.prompts_data["prompts"].append(prompt)
+        self.prompts_data["order"].append(prompt_id)
         self.refresh_list()
-        self.name_entry.setText(temp_name)
-        self.template_text.clear()
-        self.rag_checkbox.setChecked(False)
-        self.quick_review_checkbox.setChecked(False)
-        
-        # Select the new prompt and focus name field
-        items = self.prompts_list.findItems(temp_name, Qt.MatchFlag.MatchExactly)
-        if items:
-            self.prompts_list.setCurrentItem(items[0])
+        # Select the new prompt
+        for i in range(self.prompts_list.count()):
+            item = self.prompts_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == prompt_id:
+                self.prompts_list.setCurrentItem(item)
+                break
         self.name_entry.setFocus()
-        
-        # Mark changes as unsaved
         self.mark_unsaved_changes()
 
-    def show_error(self, message: str):
-        """Show error message dialog"""
-        QMessageBox.critical(self, "Error", message)
-        
     def validate_prompt(self, prompt: str) -> bool:
-        """Validate if prompt is valid"""
         if not prompt or len(prompt.strip()) < 10:
             self.show_error("Prompt is too short")
             return False
-            
         return True
 
     def save_prompt(self):
-        """Save current prompt"""
         name = self.name_entry.text().strip()
-        prompt = self.template_text.toPlainText().strip()
-        
+        prompt_text = self.template_text.toPlainText().strip()
         if not name:
             self.show_error("Please enter a name for the prompt")
             return
-            
-        if not self.validate_prompt(prompt):
+        if not self.validate_prompt(prompt_text):
             return
-            
-        try:
-            # Add default emoji if none exists
-            if not name.strip().startswith(tuple(self.default_emojis.values())):
-                base_name = name.strip()
-                if base_name in self.default_emojis:
-                    name = f"{self.default_emojis[base_name]} {base_name}"
-            
-            # If this is a new prompt (not in templates yet), add it
-            if name not in self.prompts_data['templates']:
-                self.prompts_data['templates'][name] = {
-                    'template': prompt,
-                    'use_rag': self.rag_checkbox.isChecked(),
-                    'quick_review': self.quick_review_checkbox.isChecked()
-                }
-                if name not in self.prompts_data['order']:
-                    self.prompts_data['order'].append(name)
-            
-            # Check if this is a rename of an existing prompt
-            current_item = self.prompts_list.currentItem()
-            old_name = current_item.text() if current_item else None
-            
-            # Update prompt data
-            prompt_data = {
-                'template': prompt,
-                'use_rag': self.rag_checkbox.isChecked(),
-                'quick_review': self.quick_review_checkbox.isChecked()
-            }
-            
-            # Handle rename case
-            if old_name and old_name in self.prompts_data['templates'] and old_name != name:
-                # Remove old entry and add new one
-                self.prompts_data['templates'].pop(old_name)
-                # Update order if needed
-                if old_name in self.prompts_data['order']:
-                    idx = self.prompts_data['order'].index(old_name)
-                    self.prompts_data['order'][idx] = name
-            
-            # Add/update the prompt
-            self.prompts_data['templates'][name] = prompt_data
-            
-            # Add to order if new
-            if name not in self.prompts_data['order']:
-                self.prompts_data['order'].append(name)
-            
-            # Update list and select the saved prompt
-            self.refresh_list()
-            items = self.prompts_list.findItems(name, Qt.MatchFlag.MatchExactly)
-            if items:
-                self.prompts_list.setCurrentItem(items[0])
-            
-            # Mark changes as unsaved
-            self.mark_unsaved_changes()
-            
-            QMessageBox.information(self, "Success", "Prompt saved successfully! Click 'Apply Changes' to update all modules.")
-            
-        except Exception as e:
-            self.show_error(f"Failed to save prompt: {e}")
+        current_item = self.prompts_list.currentItem()
+        if not current_item:
+            self.show_error("No prompt selected")
+            return
+        prompt_id = current_item.data(Qt.ItemDataRole.UserRole)
+        prompt = self.get_prompt_by_id(prompt_id)
+        if not prompt:
+            self.show_error("Prompt not found")
+            return
+        # Check for name collision
+        for p in self.prompts_data["prompts"]:
+            if p["name"] == name and p["id"] != prompt_id:
+                self.show_error("A prompt with this name already exists")
+                return
+        # Update prompt fields
+        prompt["name"] = name
+        prompt["template"] = prompt_text
+        prompt["use_rag"] = self.rag_checkbox.isChecked()
+        prompt["quick_review"] = self.quick_review_checkbox.isChecked()
+        # Optionally update emoji if present in name
+        if name and name[0] in self.default_emojis.values():
+            prompt["emoji"] = name[0]
+        self.refresh_list()
+        # Reselect the prompt
+        for i in range(self.prompts_list.count()):
+            item = self.prompts_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == prompt_id:
+                self.prompts_list.setCurrentItem(item)
+                break
+        self.mark_unsaved_changes()
+        QMessageBox.information(self, "Success", "Prompt saved successfully! Click 'Apply Changes' to update all modules.")
 
     def delete_prompt(self):
-        """Delete the selected prompt"""
         current = self.prompts_list.currentItem()
         if not current:
             return
-            
-        name = current.text()
-        reply = QMessageBox.question(self, "Confirm Delete", 
-                                   f"Delete prompt '{name}'?",
-                                   QMessageBox.StandardButton.Yes | 
-                                   QMessageBox.StandardButton.No)
-                                   
+        prompt_id = current.data(Qt.ItemDataRole.UserRole)
+        prompt = self.get_prompt_by_id(prompt_id)
+        if not prompt:
+            return
+        reply = QMessageBox.question(self, "Confirm Delete",
+                                    f"Delete prompt '{prompt['name']}'?",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
-            # Remove from templates and order
-            self.prompts_data['templates'].pop(name, None)
-            if name in self.prompts_data['order']:
-                self.prompts_data['order'].remove(name)
-            
-            # Remove from list and clear selection
-            self.prompts_list.takeItem(self.prompts_list.row(current))
-            self.prompts_list.clearSelection()
-            
-            # Clear editor fields
+            self.prompts_data["prompts"] = [p for p in self.prompts_data["prompts"] if p["id"] != prompt_id]
+            if prompt_id in self.prompts_data["order"]:
+                self.prompts_data["order"].remove(prompt_id)
+            self.refresh_list()
             self.name_entry.clear()
             self.template_text.clear()
             self.rag_checkbox.setChecked(False)
             self.quick_review_checkbox.setChecked(False)
-            
-            # Mark changes and update status
             self.mark_unsaved_changes()
             self.status_label.setText("Prompt deleted. Click 'Apply Changes' to update all modules.")
 
     def mark_unsaved_changes(self):
-        """Mark that there are changes that need to be applied"""
         self.has_unsaved_changes = True
         self.status_label.setText("Changes need to be applied")
-        self.status_label.setStyleSheet("color: #1976D2")  # Blue color
+        self.status_label.setStyleSheet("color: #1976D2")
         self.apply_btn.setEnabled(True)
 
     def apply_changes(self):
-        """Apply changes to all modules"""
         try:
-            # First save to file to ensure persistence
-            self.save_prompts_to_file()
-            
-            # Update the global prompt variables
-            llm_prompts.clear()
-            llm_prompts.update(self.prompts_data['templates'])
-            
-            # Update improvement_options with just the prompt names
-            improvement_options.clear()
-            improvement_options.extend(list(llm_prompts.keys()))
-            
-            # Notify all registered callbacks with the updated prompt keys and order
-            prompt_keys = list(llm_prompts.keys())
+            self.save_prompts_json()
+            # Notify all registered callbacks with the updated prompt list and order
+            prompt_keys = [p["name"] for p in self.prompts_data["prompts"]]
             for callback in self.update_callbacks:
                 try:
-                    if callback.__code__.co_argcount > 1:  # Check if callback accepts more than one argument
-                        callback(prompt_keys, self.prompts_data['order'])
+                    if callback.__code__.co_argcount > 1:
+                        callback(prompt_keys, self.prompts_data["order"])
                     else:
-                        callback(prompt_keys)  # Maintain backward compatibility
+                        callback(prompt_keys)
                     logger.debug(f"Successfully notified callback: {callback.__qualname__}")
                 except Exception as e:
                     logger.error(f"Error in callback {callback.__qualname__}: {e}")
-            
-            # Reset status
             self.has_unsaved_changes = False
             self.status_label.setText("Changes applied and saved successfully")
-            self.status_label.setStyleSheet("color: #4CAF50")  # Green color
+            self.status_label.setStyleSheet("color: #4CAF50")
             self.apply_btn.setEnabled(False)
-            
             logger.info(f"Applied changes to {len(self.update_callbacks)} modules with {len(prompt_keys)} prompts")
-            
         except Exception as e:
             logger.error(f"Error applying changes: {e}")
             self.show_error(f"Failed to apply changes: {e}")
 
-    def save_prompts_to_file(self):
-        """Save prompts and their order to file
-        
-        Creates timestamped backups by default (can be disabled via settings)
-        """
-        try:
-            # Create backup if enabled in settings (default True)
-            if os.path.exists(self.prompts_file) and self.settings.get('prompt_backups', True):
-                backup_path = f"{self.prompts_file}.{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
-                os.rename(self.prompts_file, backup_path)
-            
-            # Write new content
-            with open(self.prompts_file, 'w', encoding='utf-8') as f:
-                f.write("# Auto-generated prompt templates\n\n")
-                
-                # Write prompts dictionary
-                f.write("llm_prompts = {\n")
-                # Write prompts in order first
-                ordered_prompts = []
-                for name in self.prompts_data['order']:
-                    if name in self.prompts_data['templates']:
-                        ordered_prompts.append((name, self.prompts_data['templates'][name]))
-                
-                # Then add any remaining prompts not in order
-                remaining_prompts = []
-                for name, data in self.prompts_data['templates'].items():
-                    if name not in self.prompts_data['order']:
-                        remaining_prompts.append((name, data))
-                
-                # Write all prompts
-                for name, data in ordered_prompts + remaining_prompts:
-                    f.write(f"    {repr(name)}: {{\n")
-                    f.write(f"        'template': {repr(data['template'])},\n")
-                    f.write(f"        'use_rag': {str(data['use_rag'])},\n")
-                    f.write(f"        'quick_review': {str(data['quick_review'])}\n")
-                    f.write("    },\n")
-                f.write("}\n\n")
-                
-                # Write prompt order
-                f.write("# Prompt display order\n")
-                f.write("prompt_order = [\n")
-                for name in self.prompts_data['order']:
-                    if name in self.prompts_data['templates']:
-                        f.write(f"    {repr(name)},\n")
-                f.write("]\n")
-                
-            logger.info("Saved prompts successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error saving prompts: {e}")
-            self.show_error(f"Failed to save prompts: {e}")
-            return False
-
-    def refresh_list(self):
-        """Refresh the prompts list while maintaining order"""
-        self.prompts_list.clear()
-        
-        # If order is not set, initialize it
-        if not self.prompts_data['order']:
-            self.prompts_data['order'] = list(self.prompts_data['templates'].keys())
-        
-        # Add items in order, including any new items at the end
-        added_items = set()
-        for name in self.prompts_data['order']:
-            if name in self.prompts_data['templates']:
-                # Add default emoji if none exists
-                if not name.strip().startswith(tuple(self.default_emojis.values())):
-                    base_name = name.strip()
-                    if base_name in self.default_emojis:
-                        name = f"{self.default_emojis[base_name]} {base_name}"
-                
-                self.prompts_list.addItem(name)
-                added_items.add(name)
-        
-        # Add any new items that weren't in the order
-        for name in self.prompts_data['templates'].keys():
-            if name not in added_items:
-                # Add default emoji if none exists
-                if not name.strip().startswith(tuple(self.default_emojis.values())):
-                    base_name = name.strip()
-                    if base_name in self.default_emojis:
-                        name = f"{self.default_emojis[base_name]} {base_name}"
-                
-                self.prompts_list.addItem(name)
-                self.prompts_data['order'].append(name)
-
-    def add_update_callback(self, callback: Callable):
-        """Add a callback to be notified of prompt updates
-        
-        Args:
-            callback: A function that takes a list of prompt keys as argument
-        """
-        if callback not in self.update_callbacks:
-            self.update_callbacks.append(callback)
-            logger.info(f"Added prompt update callback: {callback.__qualname__}")
-            # Immediately call the callback with current prompts
-            try:
-                callback(list(self.prompts_data['templates'].keys()))
-            except Exception as e:
-                logger.error(f"Error in initial callback {callback.__qualname__}: {e}")
-
-    def notify_prompt_updates(self):
-        """Update the global prompts"""
-        # Update global variables
-        llm_prompts.clear()
-        llm_prompts.update(self.prompts_data['templates'])
-        
-        # Get the list of options
-        options = list(llm_prompts.keys())
-        
-        # Update improvement_options
-        improvement_options.clear()
-        improvement_options.extend(options)
-        
-        # Notify all callbacks with the new options
-        for callback in self.update_callbacks:
-            try:
-                callback(options)
-            except Exception as e:
-                logger.error(f"Error notifying prompt update: {e}")
-
     def on_prompts_reordered(self):
-        """Handle reordering of prompts"""
         new_order = []
         for i in range(self.prompts_list.count()):
-            new_order.append(self.prompts_list.item(i).text())
-        self.prompts_data['order'] = new_order
+            item = self.prompts_list.item(i)
+            prompt_id = item.data(Qt.ItemDataRole.UserRole)
+            new_order.append(prompt_id)
+        self.prompts_data["order"] = new_order
         self.mark_unsaved_changes()
         self.status_label.setText("Prompt order changed. Click 'Apply Changes' to update all modules.")
 
+    def show_error(self, message: str):
+        QMessageBox.critical(self, "Error", message)
+
     def show_emoji_menu(self):
-        """Show emoji picker menu"""
         menu = QMenu(self)
         common_emojis = [
             "✨", "🔍", "⚡", "🚀", "🎯", "💫", "🤖", "📝", "💡", "🎨",
             "🔮", "⭐", "🌟", "💪", "🎭", "🎬", "📚", "🎓", "🎪", "🎼"
         ]
-        
         for emoji in common_emojis:
             action = menu.addAction(emoji)
             action.triggered.connect(lambda checked, e=emoji: self.insert_emoji(e))
-        
-        # Position menu under the button
         menu.exec(self.emoji_btn.mapToGlobal(self.emoji_btn.rect().bottomLeft()))
 
     def insert_emoji(self, emoji: str):
-        """Insert emoji at cursor position in name field"""
         current_text = self.name_entry.text()
-        current_item = self.prompts_list.currentItem()
-        
-        if current_item:
-            old_name = current_item.text()
-            # If this is an existing prompt, we need to update it rather than create a new one
-            if old_name in self.prompts_data['templates']:
-                # Create new name with new emoji
-                words = current_text.split()
-                if words:
-                    words[0] = emoji
-                    new_name = " ".join(words)
-                else:
-                    new_name = emoji
-                
-                # Move the template data to the new name
-                self.prompts_data['templates'][new_name] = self.prompts_data['templates'].pop(old_name)
-                
-                # Update the order list
-                if old_name in self.prompts_data['order']:
-                    index = self.prompts_data['order'].index(old_name)
-                    self.prompts_data['order'][index] = new_name
-                
-                # Update the name entry and list item
-                self.name_entry.setText(new_name)
-                current_item.setText(new_name)
-                
-                # Mark changes as unsaved
-                self.mark_unsaved_changes()
-                return
-        
-        # If not editing an existing prompt, just insert the emoji at the start
         if not current_text.strip().startswith(tuple(self.default_emojis.values())):
             new_text = f"{emoji} {current_text.lstrip()}"
             self.name_entry.setText(new_text)
             self.name_entry.setCursorPosition(len(emoji) + 1)
         else:
-            # Replace existing emoji
             words = current_text.split()
             if words:
                 words[0] = emoji
@@ -614,3 +428,12 @@ Please process this text:
                 new_text = emoji
             self.name_entry.setText(new_text)
             self.name_entry.setCursorPosition(len(emoji) + 1)
+
+    def add_update_callback(self, callback: Callable):
+        if callback not in self.update_callbacks:
+            self.update_callbacks.append(callback)
+            logger.info(f"Added prompt update callback: {callback.__qualname__}")
+            try:
+                callback([p["name"] for p in self.prompts_data["prompts"]])
+            except Exception as e:
+                logger.error(f"Error in initial callback {callback.__qualname__}: {e}")

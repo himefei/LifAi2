@@ -1,16 +1,42 @@
-# 🪄 LifAi2 is an Local LLM powered (Ollama and LM Studio) Python App
+# 🪄 LifAi2: Local LLM-Powered Python App (Ollama & LM Studio)
 
-### A hub to invoke a flocating toolbar to enhance text with RAG support
-
-### Now added Chain of Thoughts filtering function, so DeepSeek Ri1 model and its distilled models can work better when replacing/enhancing text (I think anything about DeepSeek is big enough to deserve a headline LOL)
+### A modular AI hub with a floating toolbar for text enhancement, RAG support, and advanced prompt editing
 
 ![Hub Screenshot](assets/hub2.png)
+
+---
+
+## 🚀 Key Improvements in v2
+
+- **Robust Prompt Editor**: New GUI-based prompt editor with JSON storage for easy customization, ordering, and backup of prompts.
+- **Performance & Modernization**: Major refactor to leverage asynchronous operations, improving responsiveness and scalability.
+- **Plugin-Style Modular Architecture**: Clear separation between core, modules, and utilities for maintainability and extensibility.
+- **Enhanced Security & Robustness**: Improved error handling, validation, and backup strategies throughout the codebase.
+- **Knowledge Management**: Multi-slot knowledge base with fast vector search (FAISS) and RAG integration.
+- **UI/UX Enhancements**: Observer pattern for UI components, improved floating toolbar, and quick review features.
+- **Prompt Editing as a First-Class Feature**: Edit, reorder, and manage prompts directly in the app.
+
+---
+
+## 📦 Features
+
+- ✍️ **Text Enhancement**: Improve selected text using custom prompts and local LLMs.
+- 🧠 **Retrieval-Augmented Generation (RAG)**: Integrate external knowledge for context-aware completions.
+- 🛠️ **Prompt Editor**: Create, edit, and organize prompts with a user-friendly interface and JSON-based storage.
+- 🔄 **Async Operations**: Fast, non-blocking interactions with LLM backends (Ollama, LM Studio).
+- 🧩 **Modular Design**: Plugin-style modules for easy extension and maintenance.
+- 🔒 **Robust Error Handling**: Comprehensive logging, validation, and backup for all critical operations.
+- 🖥️ **Cross-Platform**: Works on Windows and MacOS.
+
+---
 
 ## 🚀 Requirements
 
 - **Python**: Version 3.10 required
 - **OLLAMA** or **LM Studio**: For running local LLMs
 - **Operating System**: Windows/MacOS
+
+---
 
 ## 📥 Installation
 
@@ -25,6 +51,8 @@
    pip install -r requirements.txt
    ```
 
+---
+
 ## 🎮 How to Use
 
 1. Launch the app:
@@ -32,28 +60,28 @@
    python run.py
    ```
 2. Click the "Toggle Toolbar" button in the app hub
-3. Select a prompt from the toolbar's dropdown menu
+3. Select a prompt from the toolbar's dropdown menu (edit/manage prompts via the Prompt Editor)
 4. Click the "Process Text" button
 5. Select any text you want to improve
 6. Wait for the magic to happen! ✨
 
-## 🚀 Welcome!
+---
 
-Hey there! 👋 I'm not a professional programmer, but with some high school coding experience and a lot of enthusiasm, I'm diving into the world of GitHub to build something awesome with AI.
+## 🏗️ Architecture
 
-Inspired by powerful AI tools like **Claude Dev** and **Cursor**, I've created lightweight apps and Chrome extensions. Now, I'm taking on a bigger challenge: a Python app powered by [OLLAMA](https://ollama.ai/) and [LM Studio](https://https://lmstudio.ai/) for:
+- **Core**: Central app logic and UI hub.
+- **Modules**: Plugin-style features (e.g., floating toolbar, prompt editor, knowledge manager).
+- **Utils**: Shared utilities (AI clients, knowledge base, clipboard, logging).
+- **Config**: Centralized configuration and prompt management.
+- **Prompt Storage**: All prompts are managed in `lifai/modules/prompt_editor/prompts.json` for transparency and backup.
 
-- ✍️ **Writing Improvement**: Enhance text with custom prompts
-- ✏️ **Prompt Editor**: Craft and refine your AI prompts with customizations
-- 🚀 **RAG**: Built-in RAG support for knowledge
-
-## 🎯 Why This Project?
-
-AI coding assistants have opened up amazing possibilities for tech enthusiasts like me. This project is all about learning, experimenting, and seeing what we can create together with AI help.
+---
 
 ## 🤝 Contribute
 
-This is a personal learning journey, and I'm still getting the hang of GitHub. But I'm open to ideas and collaborations! Feel free to open an issue or submit a pull request.
+This is a personal learning journey, but contributions and ideas are welcome! Feel free to open an issue or submit a pull request.
+
+---
 
 ## 🙏 Thanks
 
@@ -65,4 +93,4 @@ This is a personal learning journey, and I'm still getting the hang of GitHub. B
 
 ---
 
-Thanks for checking out my project! Let's see where this AI-assisted adventure takes us. 🚀✨
+Thanks for checking out LifAi2! 🚀✨
