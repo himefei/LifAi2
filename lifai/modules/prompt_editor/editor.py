@@ -152,8 +152,8 @@ class PromptEditorWindow(QMainWindow):
 
         # Add checkboxes in a vertical layout
         checkbox_layout = QVBoxLayout()
-        self.rag_checkbox = QCheckBox("Use RAG (Retrieval)")
-        checkbox_layout.addWidget(self.rag_checkbox)
+        # self.rag_checkbox = QCheckBox("Use RAG (Retrieval)") # RAG Removed
+        # checkbox_layout.addWidget(self.rag_checkbox) # RAG Removed
         self.quick_review_checkbox = QCheckBox("Display as Quick Review")
         checkbox_layout.addWidget(self.quick_review_checkbox)
         name_layout.addLayout(checkbox_layout)
@@ -163,30 +163,24 @@ class PromptEditorWindow(QMainWindow):
         help_frame = QFrame()
         help_frame.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
         help_layout = QVBoxLayout(help_frame)
-        help_label = QLabel("""<b>Available Placeholders:</b>
-• {text} - The selected text to process
-• {context} - All retrieved knowledge combined
-• {context1} - Knowledge from first relevant slot
-• {context2} - Knowledge from second relevant slot
-• {context3} - Knowledge from third relevant slot
-...and so on for each knowledge slot
+        help_label = QLabel("""<b>Understanding Prompts:</b>
+Your prompt template acts as the <b>System Instructions</b> for the AI. The text you select in other applications will be provided to the AI as the <b>User Input</b>.
 
-<b>Example Prompt Structure:</b>
-You are an AI assistant. Here is relevant context:
+<b>How it Works:</b>
+1. Your template becomes the System Instructions.
+2. The text you select in an application becomes the User Input.
+3. The AI processes the User Input based on the System Instructions.
 
-Technical knowledge:
-{context1}
+The <code>{text}</code> placeholder is <b>not applicable</b> for defining where selected text goes within the template itself; the selected text is always sent as a separate User Input. Your template should be written as a complete set of instructions for the AI, telling it how to handle the upcoming User Input.
 
-Product knowledge:
-{context2}
+<b>Example System Instruction Template:</b>
+You are an expert copy editor. Your task is to proofread and improve the clarity of the user's text. Focus on conciseness and active voice. If the user's text is a question, provide a comprehensive answer.
 
-Support history:
-{context3}
+<i>(When you select text, it will be sent to the AI after these instructions.)</i>
 
-Please process this text:
-{text}
-
-[Your additional instructions here]""")
+<b>Minimal Template Example:</b>
+If your template is empty, a default instruction like "Process the following text based on your general knowledge and capabilities" will be used as the system instruction.
+""")
         help_label.setWordWrap(True)
         help_layout.addWidget(help_label)
         right_layout.addWidget(help_frame)
@@ -259,7 +253,7 @@ Please process this text:
             return
         self.name_entry.setText(prompt["name"])
         self.template_text.setPlainText(prompt.get("template", ""))
-        self.rag_checkbox.setChecked(prompt.get("use_rag", False))
+        # self.rag_checkbox.setChecked(prompt.get("use_rag", False)) # RAG Removed
         self.quick_review_checkbox.setChecked(prompt.get("quick_review", False))
 
     def new_prompt(self):
@@ -275,7 +269,7 @@ Please process this text:
             "id": prompt_id,
             "name": temp_name,
             "template": "",
-            "use_rag": False,
+            # "use_rag": False, # RAG Removed
             "quick_review": False,
             "emoji": "✨"
         }
@@ -322,7 +316,7 @@ Please process this text:
         # Update prompt fields
         prompt["name"] = name
         prompt["template"] = prompt_text
-        prompt["use_rag"] = self.rag_checkbox.isChecked()
+        # prompt["use_rag"] = self.rag_checkbox.isChecked() # RAG Removed
         prompt["quick_review"] = self.quick_review_checkbox.isChecked()
         # Optionally update emoji if present in name
         if name and name[0] in self.default_emojis.values():

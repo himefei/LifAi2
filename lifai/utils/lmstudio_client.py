@@ -114,7 +114,7 @@ class LMStudioClient:
         self,
         messages: List[Dict],
         model: Optional[str] = None,
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,  # Changed from default 0.7 to None
         stream: bool = False,
         format: Optional[Union[str, Dict]] = None
     ) -> Dict:
@@ -153,7 +153,7 @@ class LMStudioClient:
         self,
         messages: List[Dict],
         model: Optional[str] = None,
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,  # Changed from default 0.7 to None
         stream: bool = False,
         format: Optional[Union[str, Dict]] = None
     ) -> Dict:

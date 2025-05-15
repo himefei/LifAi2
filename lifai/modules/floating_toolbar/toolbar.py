@@ -26,7 +26,7 @@ from lifai.utils.ollama_client import OllamaClient
 from lifai.utils.logger_utils import get_module_logger
 from lifai.config.prompts import llm_prompts, prompt_order
 from lifai.utils.clipboard_utils import ClipboardManager
-from lifai.utils.knowledge_base import KnowledgeBase
+# from lifai.utils.knowledge_base import KnowledgeBase # RAG Removed
 import time
 import threading
 import logging
@@ -193,7 +193,7 @@ class FloatingToolbarModule(QMainWindow):
         self.client_type = "ollama" if isinstance(ollama_client, OllamaClient) else "lmstudio"
         self.processing = False
         self.clipboard = ClipboardManager()
-        self.knowledge_base = KnowledgeBase()  # Initialize knowledge base
+        # self.knowledge_base = KnowledgeBase()  # RAG Removed: Initialize knowledge base
         self.prompt_order = prompt_order if isinstance(prompt_order, list) else list(llm_prompts.keys())
         self.setup_ui()
         self.setup_hotkeys()
@@ -524,9 +524,8 @@ class FloatingToolbarModule(QMainWindow):
                 raise ValueError(f"Invalid prompt format for '{current_prompt}'")
                 
             template = prompt_info.get('template')
-            use_rag = prompt_info.get('use_rag', False)
-            
-            logger.debug(f"Using template with RAG={use_rag}")
+            # use_rag = prompt_info.get('use_rag', False) # RAG is being removed
+            # logger.debug(f"Using template with RAG={use_rag}") # RAG is being removed
             
             # Get text from clipboard
             if not text:
@@ -536,52 +535,43 @@ class FloatingToolbarModule(QMainWindow):
             
             logger.debug(f"Processing text: {text[:100]}...")
 
-            # Initialize context dictionary
-            contexts = {}
+            # Initialize messages array for the LLM
+            messages = []
             
-            # If RAG is enabled, get context from each slot
-            if use_rag:
-                logger.debug("RAG is enabled, retrieving context...")
-                kb = KnowledgeBase()
-                slot_names = kb.get_slot_names()
-                
-                # Get context for each slot if placeholder exists
-                for i, slot_name in enumerate(slot_names, 1):
-                    context_key = f"context{i}"
-                    if f"{{{context_key}}}" in template:
-                        context = kb.get_context(text, slot_name=slot_name)
-                        contexts[context_key] = context if context else "No relevant context found."
-                        logger.debug(f"Retrieved context for {slot_name}")
-                
-                # Handle generic {context} placeholder
-                if "{context}" in template:
-                    context = kb.get_context(text)  # Get context from all slots
-                    contexts["context"] = context if context else "No relevant context found."
-                    logger.debug("Retrieved combined context")
+            # The template (from prompt_info.get('template')) is the system instruction.
+            # No RAG context injection.
+            system_message_content = template.strip()
+            
+            # If the template is empty, provide a default system prompt.
+            # The previous logic for handling "{text}" in template is removed as RAG and its specific placeholder logic are gone.
+            # The user is now guided by the PromptEditor help text to write the template as the full system instruction.
+            if not system_message_content:
+                system_message_content = "Process the following text based on your general knowledge and capabilities."
 
-            # Format prompt with text and contexts
-            try:
-                prompt = template.format(text=text, **contexts)
-                logger.debug("Prompt formatted successfully")
-            except KeyError as e:
-                raise ValueError(f"Error formatting prompt: missing placeholder {e}")
-            except Exception as e:
-                raise ValueError(f"Error formatting prompt: {e}")
+            # Add system prompt
+            messages.append({"role": "system", "content": system_message_content})
+            
+            # Add user's selected text as a user message
+            messages.append({"role": "user", "content": text})
+
+            logger.debug(f"Constructed messages: {messages}")
 
             # Process with LLM
             logger.debug(f"Sending request to {self.client_type}")
             if self.client_type == "ollama":
-                response = self.client.generate_response(
-                    prompt=prompt,
-                    model=self.settings.get('model', 'mistral')
+                # Ensure OllamaClient's chat_completion is used and handles 'messages'
+                response = self.client.chat_completion( # Changed from generate_response
+                    model=self.settings.get('model', 'mistral'),
+                    messages=messages
+                    # temperature removed - will be controlled from Ollama host
                 )
-                processed_text = response
+                # Assuming chat_completion returns a dict like LM Studio
+                processed_text = response['message']['content']
             else:  # LM Studio
-                messages = [{"role": "system", "content": prompt}]
                 response = self.client.chat_completion_sync(
                     messages=messages,
-                    model=self.settings.get('model', 'mistral'),
-                    temperature=0.7
+                    model=self.settings.get('model', 'mistral')
+                    # temperature removed - will be controlled from LM Studio host
                 )
                 processed_text = response['choices'][0]['message']['content']
             

@@ -18,7 +18,7 @@ from lifai.utils.lmstudio_client import LMStudioClient
 # from lifai.modules.text_improver.improver import TextImproverWindow
 from lifai.modules.floating_toolbar.toolbar import FloatingToolbarModule
 from lifai.modules.prompt_editor.editor import PromptEditorWindow
-from lifai.modules.knowledge_manager.manager import KnowledgeManagerWindow
+# from lifai.modules.knowledge_manager.manager import KnowledgeManagerWindow # RAG Removed
 # from lifai.modules.AI_chat.ai_chat import ChatWindow
 # from lifai.modules.agent_workspace.workspace import AgentWorkspaceWindow
 # from lifai.modules.advagent.advagent_window import AdvAgentWindow
@@ -210,10 +210,10 @@ class LifAi2Hub(QMainWindow):
         self.prompt_editor_toggle.toggled.connect(self.toggle_prompt_editor)
         modules_layout.addWidget(self.prompt_editor_toggle)
         
-        # Knowledge Manager toggle
-        self.knowledge_manager_toggle = ModuleToggle("Knowledge Manager")
-        self.knowledge_manager_toggle.toggled.connect(self.toggle_knowledge_manager)
-        modules_layout.addWidget(self.knowledge_manager_toggle)
+        # Knowledge Manager toggle # RAG Removed
+        # self.knowledge_manager_toggle = ModuleToggle("Knowledge Manager") # RAG Removed
+        # self.knowledge_manager_toggle.toggled.connect(self.toggle_knowledge_manager) # RAG Removed
+        # modules_layout.addWidget(self.knowledge_manager_toggle) # RAG Removed
         
         main_layout.addWidget(modules_group)
         
@@ -323,9 +323,9 @@ class LifAi2Hub(QMainWindow):
             ollama_client=self.get_active_client()
         )
         
-        self.modules['knowledge_manager'] = KnowledgeManagerWindow(
-            settings=self.settings
-        )
+        # self.modules['knowledge_manager'] = KnowledgeManagerWindow( # RAG Removed
+        #     settings=self.settings # RAG Removed
+        # ) # RAG Removed
         
         # 注册 prompt 更新回调
         # if hasattr(self.modules['text_improver'], 'update_prompts'):
@@ -357,11 +357,11 @@ class LifAi2Hub(QMainWindow):
         else:
             self.modules['prompt_editor'].hide()
 
-    def toggle_knowledge_manager(self, enabled):
-        if enabled:
-            self.modules['knowledge_manager'].show()
-        else:
-            self.modules['knowledge_manager'].hide()
+    # def toggle_knowledge_manager(self, enabled): # RAG Removed
+    #     if enabled: # RAG Removed
+    #         self.modules['knowledge_manager'].show() # RAG Removed
+    #     else: # RAG Removed
+    #         self.modules['knowledge_manager'].hide() # RAG Removed
 
     def change_log_level(self, level):
         """更改日志级别"""
