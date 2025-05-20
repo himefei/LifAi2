@@ -195,7 +195,36 @@ class FloatingToolbarModule(QMainWindow):
         self.clipboard = ClipboardManager()
         # self.knowledge_base = KnowledgeBase()  # RAG Removed: Initialize knowledge base
         self.llm_prompts = llm_prompts.copy() # Initialize instance variable
-        self.prompt_order = prompt_order.copy() if isinstance(prompt_order, list) else list(self.llm_prompts.keys())
+        # Initialize self.prompt_order as a list of names in the correct order
+        # prompt_order (from import) is a list of IDs.
+        # self.llm_prompts (from import, copied) is a dict of name:data.
+        # We need to map the IDs in prompt_order to names using self.llm_prompts.
+        initial_prompt_names_ordered = []
+        if isinstance(prompt_order, list):
+            # Create a temporary reverse map from ID to name from the initial llm_prompts
+            id_to_name_map = {}
+            for name, data in self.llm_prompts.items():
+                if isinstance(data, dict) and "id" in data:
+                    id_to_name_map[data["id"]] = name
+            
+            for p_id in prompt_order:
+                if p_id in id_to_name_map:
+                    initial_prompt_names_ordered.append(id_to_name_map[p_id])
+                else:
+                    logger.warning(f"Toolbar __init__: Prompt ID '{p_id}' from initial prompt_order not found in llm_prompts' ID map.")
+            
+            # Add any prompts from llm_prompts that weren't in prompt_order (e.g. if prompts.json was manually edited)
+            for name in self.llm_prompts.keys():
+                if name not in initial_prompt_names_ordered:
+                    initial_prompt_names_ordered.append(name)
+                    logger.warning(f"Toolbar __init__: Prompt name '{name}' from llm_prompts was not in initial_prompt_names_ordered, appending.")
+        
+        if not initial_prompt_names_ordered: # Fallback if mapping failed
+            logger.warning("Toolbar __init__: Failed to create ordered list of names, falling back to llm_prompts keys.")
+            initial_prompt_names_ordered = list(self.llm_prompts.keys())
+            
+        self.prompt_order = initial_prompt_names_ordered
+        logger.debug(f"Toolbar __init__: self.prompt_order (list of names): {self.prompt_order}")
         self.setup_ui()
         self.setup_hotkeys()
         self.hide()
@@ -719,35 +748,60 @@ class FloatingToolbarModule(QMainWindow):
         logger.debug(f"Toolbar: self.llm_prompts reloaded, now has {len(self.llm_prompts)} entries.")
 
         # Step 2: Determine the correct ordered list of prompt *names* for self.prompt_order.
-        # The PromptEditor is expected to send `prompt_keys` as a list of names in the correct display order.
-        if prompt_keys and isinstance(prompt_keys, list) and all(isinstance(name, str) for name in prompt_keys):
-            # Validate that these names exist in the reloaded prompts
-            valid_ordered_names = [name for name in prompt_keys if name in self.llm_prompts]
-            if len(valid_ordered_names) != len(prompt_keys):
-                logger.warning("Some prompt names from editor's `prompt_keys` were not found in reloaded prompts.")
-            self.prompt_order = valid_ordered_names
-            logger.info(f"Toolbar: self.prompt_order set from editor's `prompt_keys` (list of names): {self.prompt_order}")
-        elif prompt_order_ids and isinstance(prompt_order_ids, list):
-            # If `prompt_keys` is not good, try to use `prompt_order_ids` from the editor.
-            id_to_name_map = {data["id"]: name for name, data in self.llm_prompts.items() if isinstance(data, dict) and "id" in data}
-            ordered_names_from_ids = [id_to_name_map[pid] for pid in prompt_order_ids if pid in id_to_name_map and id_to_name_map[pid] in self.llm_prompts]
-            if ordered_names_from_ids:
-                self.prompt_order = ordered_names_from_ids
-                logger.info(f"Toolbar: self.prompt_order derived from editor's `prompt_order_ids`: {self.prompt_order}")
+        # Prioritize prompt_order_ids from the editor as the source of truth for order.
+        ordered_names = []
+        if prompt_order_ids and isinstance(prompt_order_ids, list):
+            # Create a map from ID to Name using the reloaded self.llm_prompts
+            # self.llm_prompts is {name: {id:..., template:...}}
+            id_to_name_map = {}
+            for name, data in self.llm_prompts.items():
+                if isinstance(data, dict) and "id" in data:
+                    id_to_name_map[data["id"]] = name
+            
+            for p_id in prompt_order_ids:
+                if p_id in id_to_name_map:
+                    prompt_name = id_to_name_map[p_id]
+                    if prompt_name in self.llm_prompts: # Ensure the name actually exists in the current prompt data
+                        ordered_names.append(prompt_name)
+                    else:
+                        logger.warning(f"Toolbar: Name '{prompt_name}' (for ID '{p_id}') not in self.llm_prompts. Skipping.")
+                else:
+                    logger.warning(f"Toolbar: Prompt ID '{p_id}' from editor's prompt_order_ids not found in id_to_name_map. Skipping.")
+            
+            if ordered_names: # If we successfully built an ordered list from IDs
+                self.prompt_order = ordered_names
+                logger.info(f"Toolbar: self.prompt_order successfully derived from editor's `prompt_order_ids`: {self.prompt_order}")
             else:
-                # Fallback if editor's IDs are also not helpful
-                self.prompt_order = list(self.llm_prompts.keys()) # Unordered
-                logger.warning("Toolbar: Could not derive ordered names from editor's `prompt_order_ids`. Falling back to unordered prompt names.")
-        else:
-            # Absolute fallback: if editor sends no valid ordering info.
-            # Use the keys from the reloaded prompts (likely unordered, or ordered as per prompts.json internal order).
-            self.prompt_order = list(self.llm_prompts.keys())
-            logger.error("Toolbar: Editor callback did not provide valid `prompt_keys` or `prompt_order_ids`. Using keys from reloaded prompts for order.")
+                # This means prompt_order_ids was empty, or all IDs were invalid.
+                # The editor also sends prompt_keys (an unordered list of all current prompt names).
+                # We should ensure all prompts are at least available, even if order is lost.
+                logger.warning("Toolbar: Failed to derive ordered names from `prompt_order_ids`. Will use all available prompt names from reloaded data, order might be lost.")
+                self.prompt_order = list(self.llm_prompts.keys()) # Fallback to all known prompt names, unordered.
         
+        elif prompt_keys and isinstance(prompt_keys, list) and all(isinstance(name, str) for name in prompt_keys):
+            # This case is if prompt_order_ids was NOT provided by the editor, but prompt_keys was.
+            # This shouldn't happen with the current editor logic, but as a safeguard:
+            logger.warning("Toolbar: `prompt_order_ids` not provided by editor, attempting to use `prompt_keys`. Order might not be as expected by user.")
+            valid_names_from_keys = [name for name in prompt_keys if name in self.llm_prompts]
+            if valid_names_from_keys:
+                self.prompt_order = valid_names_from_keys
+            else:
+                logger.error("Toolbar: `prompt_keys` also empty or invalid. Falling back to all known prompt names, unordered.")
+                self.prompt_order = list(self.llm_prompts.keys())
+        else:
+            # This means neither prompt_order_ids nor prompt_keys were usable.
+            logger.error("Toolbar: Neither `prompt_order_ids` nor `prompt_keys` from editor were usable. Falling back to all known prompt names, unordered.")
+            self.prompt_order = list(self.llm_prompts.keys())
+
+        # Ensure self.prompt_order is never empty if self.llm_prompts is not.
+        if not self.prompt_order and self.llm_prompts:
+            logger.error("Toolbar: self.prompt_order is empty after processing, but self.llm_prompts is not. Critical fallback.")
+            self.prompt_order = list(self.llm_prompts.keys())
+            
         # Step 3: Update the ComboBox UI.
-        self._update_prompt_combo() # This will now use the updated self.prompt_order (list of names)
+        self._update_prompt_combo()
         self.update_button_state()
-        logger.info(f"Toolbar: Prompts updated. Combo items: {[self.prompt_combo.itemText(i) for i in range(self.prompt_combo.count())]}. Current selection: {self.prompt_combo.currentText()}")
+        logger.info(f"Toolbar: Prompts updated. Final self.prompt_order: {self.prompt_order}. Combo items: {[self.prompt_combo.itemText(i) for i in range(self.prompt_combo.count())]}. Current selection: {self.prompt_combo.currentText()}")
 
     def _update_prompt_combo(self): # Removed prompt_keys_override
         """

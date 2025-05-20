@@ -349,7 +349,7 @@ If your template is empty, a default instruction like "Process the following tex
             self.refresh_list()
             self.name_entry.clear()
             self.template_text.clear()
-            self.rag_checkbox.setChecked(False)
+            # self.rag_checkbox.setChecked(False) # RAG functionality removed
             self.quick_review_checkbox.setChecked(False)
             self.mark_unsaved_changes()
             self.status_label.setText("Prompt deleted. Click 'Apply Changes' to update all modules.")
@@ -362,23 +362,53 @@ If your template is empty, a default instruction like "Process the following tex
 
     def apply_changes(self):
         try:
-            self.save_prompts_json()
+            if not self.save_prompts_json():
+                # Save failed, error already shown by save_prompts_json. Do not proceed.
+                logger.error("Prompt saving failed. Aborting apply_changes.")
+                return
+
             # Notify all registered callbacks with the updated prompt list and order
-            prompt_keys = [p["name"] for p in self.prompts_data["prompts"]]
+            # Ensure prompt_keys are derived from the current state of prompts_data,
+            # and are in an order consistent with self.prompts_data["order"] if possible,
+            # though toolbar primarily uses the ID list for ordering.
+            
+            # Create a name list that respects the order in self.prompts_data["order"]
+            id_to_name_map = {p["id"]: p["name"] for p in self.prompts_data["prompts"]}
+            ordered_prompt_names = [id_to_name_map[pid] for pid in self.prompts_data["order"] if pid in id_to_name_map]
+
+            # Fallback for any names in prompts_data["prompts"] but not in ordered_prompt_names (should not happen if data is consistent)
+            current_prompt_names_set = set(ordered_prompt_names)
+            for p in self.prompts_data["prompts"]:
+                if p["name"] not in current_prompt_names_set:
+                    ordered_prompt_names.append(p["name"]) # Append unordered ones at the end
+                    logger.warning(f"Prompt '{p['name']}' was in prompts list but not derived from order. Appending.")
+
+            prompt_keys_to_send = ordered_prompt_names
+            prompt_order_ids_to_send = self.prompts_data["order"]
+
+            logger.debug(f"Editor apply_changes: Sending prompt_keys_to_send: {prompt_keys_to_send}")
+            logger.debug(f"Editor apply_changes: Sending prompt_order_ids_to_send: {prompt_order_ids_to_send}")
+
             for callback in self.update_callbacks:
                 try:
-                    if callback.__code__.co_argcount > 1:
-                        callback(prompt_keys, self.prompts_data["order"])
-                    else:
-                        callback(prompt_keys)
+                    # Toolbar's update_prompts expects (self, prompt_keys, prompt_order_ids)
+                    if callback.__code__.co_argcount > 2: # Check for 3 args: self, keys, ids
+                        callback(prompt_keys_to_send, prompt_order_ids_to_send)
+                    elif callback.__code__.co_argcount > 1: # Check for 2 args: self, keys
+                         callback(prompt_keys_to_send) # Older callback signature
+                    else: # callback(self) - unlikely for prompt updates
+                        logger.warning(f"Callback {callback.__qualname__} has unexpected argcount {callback.__code__.co_argcount}")
+                        callback()
+
                     logger.debug(f"Successfully notified callback: {callback.__qualname__}")
                 except Exception as e:
-                    logger.error(f"Error in callback {callback.__qualname__}: {e}")
+                    logger.error(f"Error in callback {callback.__qualname__}: {e}") # This could be where the crash occurs
+
             self.has_unsaved_changes = False
             self.status_label.setText("Changes applied and saved successfully")
             self.status_label.setStyleSheet("color: #4CAF50")
             self.apply_btn.setEnabled(False)
-            logger.info(f"Applied changes to {len(self.update_callbacks)} modules with {len(prompt_keys)} prompts")
+            logger.info(f"Applied changes to {len(self.update_callbacks)} modules with {len(prompt_keys_to_send)} prompts")
         except Exception as e:
             logger.error(f"Error applying changes: {e}")
             self.show_error(f"Failed to apply changes: {e}")
