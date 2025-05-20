@@ -24,7 +24,7 @@ from typing import Dict, List
 from pynput import mouse
 from lifai.utils.ollama_client import OllamaClient
 from lifai.utils.logger_utils import get_module_logger
-from lifai.config.prompts import llm_prompts, prompt_order
+from lifai.config.prompts import llm_prompts, prompt_order, reload_prompts
 from lifai.utils.clipboard_utils import ClipboardManager
 # from lifai.utils.knowledge_base import KnowledgeBase # RAG Removed
 import time
@@ -194,7 +194,8 @@ class FloatingToolbarModule(QMainWindow):
         self.processing = False
         self.clipboard = ClipboardManager()
         # self.knowledge_base = KnowledgeBase()  # RAG Removed: Initialize knowledge base
-        self.prompt_order = prompt_order if isinstance(prompt_order, list) else list(llm_prompts.keys())
+        self.llm_prompts = llm_prompts.copy() # Initialize instance variable
+        self.prompt_order = prompt_order.copy() if isinstance(prompt_order, list) else list(self.llm_prompts.keys())
         self.setup_ui()
         self.setup_hotkeys()
         self.hide()
@@ -516,10 +517,10 @@ class FloatingToolbarModule(QMainWindow):
             current_prompt = self.prompt_combo.currentText()
             logger.debug(f"Selected prompt: {current_prompt}")
             
-            if current_prompt not in llm_prompts:
+            if current_prompt not in self.llm_prompts:
                 raise ValueError(f"Selected prompt '{current_prompt}' not found in available prompts")
                 
-            prompt_info = llm_prompts[current_prompt]
+            prompt_info = self.llm_prompts[current_prompt]
             if not isinstance(prompt_info, dict):
                 raise ValueError(f"Invalid prompt format for '{current_prompt}'")
                 
@@ -703,71 +704,86 @@ class FloatingToolbarModule(QMainWindow):
             logger.error(f"Error in close event: {e}")
             event.accept()
 
-    def update_prompts(self, prompt_keys=None, prompt_order=None):
-        """Update available prompts and their order
-        
-        Args:
-            prompt_keys: Optional list of prompt keys to update
-            prompt_order: Optional list specifying the order of prompts
+    def update_prompts(self, prompt_keys: List[str] = None, prompt_order_ids: List[str] = None):
         """
-        logger.debug(f"Updating prompts with order: {prompt_order}")
-        
-        # Reload prompts from JSON file to get the latest changes
-        from lifai.config.prompts import reload_prompts, llm_prompts
-        updated_prompts, updated_order = reload_prompts()
-        
-        if prompt_order is not None:
-            self.prompt_order = prompt_order.copy()  # Make a copy to avoid reference issues
-        else:
-            self.prompt_order = updated_order.copy()
-            
-        logger.debug(f"Updated prompt order to: {self.prompt_order}")
-        
-        if prompt_keys is None:
-            prompt_keys = list(updated_prompts.keys())
-            
-        self._update_prompt_combo()
-        self.update_button_state()
+        Update available prompts and their order. Called by PromptEditor.
+        Args:
+            prompt_keys: List of prompt names in the new desired order (from editor).
+            prompt_order_ids: List of prompt UUIDs in the new desired order (from editor).
+        """
+        logger.debug(f"Toolbar: update_prompts called. Editor sent prompt_keys: {prompt_keys}, prompt_order_ids: {prompt_order_ids}")
 
-    def _update_prompt_combo(self):
-        """Update prompt combo box items in the correct order"""
-        # Get the latest prompts
-        from lifai.config.prompts import llm_prompts, load_all_prompts
+        # Step 1: Reload all prompt data to ensure self.llm_prompts is fresh.
+        reloaded_prompts_data, _ = reload_prompts() # reload_prompts returns (dict_by_name, list_of_ids_ordered)
+        self.llm_prompts = reloaded_prompts_data.copy()
+        logger.debug(f"Toolbar: self.llm_prompts reloaded, now has {len(self.llm_prompts)} entries.")
+
+        # Step 2: Determine the correct ordered list of prompt *names* for self.prompt_order.
+        # The PromptEditor is expected to send `prompt_keys` as a list of names in the correct display order.
+        if prompt_keys and isinstance(prompt_keys, list) and all(isinstance(name, str) for name in prompt_keys):
+            # Validate that these names exist in the reloaded prompts
+            valid_ordered_names = [name for name in prompt_keys if name in self.llm_prompts]
+            if len(valid_ordered_names) != len(prompt_keys):
+                logger.warning("Some prompt names from editor's `prompt_keys` were not found in reloaded prompts.")
+            self.prompt_order = valid_ordered_names
+            logger.info(f"Toolbar: self.prompt_order set from editor's `prompt_keys` (list of names): {self.prompt_order}")
+        elif prompt_order_ids and isinstance(prompt_order_ids, list):
+            # If `prompt_keys` is not good, try to use `prompt_order_ids` from the editor.
+            id_to_name_map = {data["id"]: name for name, data in self.llm_prompts.items() if isinstance(data, dict) and "id" in data}
+            ordered_names_from_ids = [id_to_name_map[pid] for pid in prompt_order_ids if pid in id_to_name_map and id_to_name_map[pid] in self.llm_prompts]
+            if ordered_names_from_ids:
+                self.prompt_order = ordered_names_from_ids
+                logger.info(f"Toolbar: self.prompt_order derived from editor's `prompt_order_ids`: {self.prompt_order}")
+            else:
+                # Fallback if editor's IDs are also not helpful
+                self.prompt_order = list(self.llm_prompts.keys()) # Unordered
+                logger.warning("Toolbar: Could not derive ordered names from editor's `prompt_order_ids`. Falling back to unordered prompt names.")
+        else:
+            # Absolute fallback: if editor sends no valid ordering info.
+            # Use the keys from the reloaded prompts (likely unordered, or ordered as per prompts.json internal order).
+            self.prompt_order = list(self.llm_prompts.keys())
+            logger.error("Toolbar: Editor callback did not provide valid `prompt_keys` or `prompt_order_ids`. Using keys from reloaded prompts for order.")
         
-        current_text = self.prompt_combo.currentText() if self.prompt_combo.count() > 0 else None
-        
+        # Step 3: Update the ComboBox UI.
+        self._update_prompt_combo() # This will now use the updated self.prompt_order (list of names)
+        self.update_button_state()
+        logger.info(f"Toolbar: Prompts updated. Combo items: {[self.prompt_combo.itemText(i) for i in range(self.prompt_combo.count())]}. Current selection: {self.prompt_combo.currentText()}")
+
+    def _update_prompt_combo(self): # Removed prompt_keys_override
+        """
+        Update the prompt selection QComboBox using self.prompt_order (list of names)
+        and self.llm_prompts (dict of prompt data).
+        """
+        current_selection = self.prompt_combo.currentText()
         self.prompt_combo.clear()
         
-        # Get all prompts as a list
-        all_prompts = load_all_prompts()
-        
-        # Create a mapping from ID to name
-        id_to_name = {p["id"]: p["name"] for p in all_prompts}
-        
-        # Add items in order
-        added_items = set()
-        for prompt_id in self.prompt_order:
-            if prompt_id in id_to_name and id_to_name[prompt_id] in llm_prompts:
-                name = id_to_name[prompt_id]
+        logger.debug(f"Toolbar: _update_prompt_combo using self.prompt_order (names): {self.prompt_order}")
+
+        if not isinstance(self.prompt_order, list) or not all(isinstance(name, str) for name in self.prompt_order):
+            logger.error(f"Toolbar: _update_prompt_combo expects self.prompt_order to be a list of strings, but got: {type(self.prompt_order)}. Populating with unordered self.llm_prompts keys.")
+            # Fallback if self.prompt_order is not a list of names
+            prompts_to_display = list(self.llm_prompts.keys())
+        else:
+            prompts_to_display = self.prompt_order
+
+        for name in prompts_to_display:
+            if name in self.llm_prompts:  # Ensure the prompt name exists in our current data
                 self.prompt_combo.addItem(name)
-                added_items.add(name)
-                logger.debug(f"Added prompt in order: {name} (ID: {prompt_id})")
+            else:
+                logger.warning(f"Toolbar: Prompt name '{name}' from ordered list not found in self.llm_prompts during combo update. Skipping.")
+                
+        # Restore selection if possible
+        if current_selection and self.prompt_combo.findText(current_selection) != -1:
+            self.prompt_combo.setCurrentText(current_selection)
+            logger.debug(f"Toolbar: Restored previous selection: {current_selection}")
+        elif self.prompt_combo.count() > 0:
+            self.prompt_combo.setCurrentIndex(0)
+            logger.debug(f"Toolbar: Set selection to first item: {self.prompt_combo.currentText()}")
+        else:
+            logger.warning("Toolbar: Prompt combo is empty after _update_prompt_combo.")
         
-        # Add any remaining items that weren't in the order
-        for name in llm_prompts.keys():
-            if name not in added_items:
-                self.prompt_combo.addItem(name)
-                self.prompt_order.append(name)  # Add to order list
-                logger.debug(f"Added new prompt: {name}")
-        
-        # Restore previous selection if possible
-        if current_text and current_text in llm_prompts:
-            index = self.prompt_combo.findText(current_text)
-            if index >= 0:
-                self.prompt_combo.setCurrentIndex(index)
-                logger.debug(f"Restored selection to: {current_text}")
-        
-        # Update combo box style to better display emojis
+        # No need to update stylesheet here unless specifically required for emojis again.
+        # The original stylesheet is set in setup_ui.
         self.prompt_combo.setStyleSheet("""
             QComboBox {
                 border: 1px solid #e0e0e0;
