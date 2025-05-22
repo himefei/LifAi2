@@ -219,3 +219,38 @@ class OllamaClient:
                     raise Exception(error_msg)
         except Exception as e:
             raise Exception(f"Error generating embeddings: {str(e)}")
+
+    def chat_completion_sync(
+        self,
+        model: str,
+        messages: List[Dict],
+        stream: bool = False,
+        format: Optional[Union[str, Dict]] = None,
+        options: Optional[Dict] = None,
+        temperature: Optional[float] = None
+    ) -> Dict:
+        """
+        Synchronous wrapper for chat_completion.
+        Uses asyncio to run the async method in the current thread.
+        """
+        try:
+            # Always create a new event loop for thread safety
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(
+                    self.chat_completion(
+                        model=model,
+                        messages=messages,
+                        stream=stream,
+                        format=format,
+                        options=options,
+                        temperature=temperature
+                    )
+                )
+            finally:
+                new_loop.close()
+        except Exception as e:
+            logger.error(f"Error in chat_completion_sync: {e}")
+            # Propagate the exception or return a specific error structure
+            raise Exception(f"Synchronous chat completion failed: {str(e)}")

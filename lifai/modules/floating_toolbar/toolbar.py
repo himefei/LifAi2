@@ -589,13 +589,13 @@ class FloatingToolbarModule(QMainWindow):
             # Process with LLM
             logger.debug(f"Sending request to {self.client_type}")
             if self.client_type == "ollama":
-                # Ensure OllamaClient's chat_completion is used and handles 'messages'
-                response = self.client.chat_completion( # Changed from generate_response
+                # Ensure OllamaClient's chat_completion_sync is used
+                response = self.client.chat_completion_sync(
                     model=self.settings.get('model', 'mistral'),
                     messages=messages
                     # temperature removed - will be controlled from Ollama host
                 )
-                # Assuming chat_completion returns a dict like LM Studio
+                # Assuming chat_completion_sync returns a dict with 'message': {'content': ...}
                 processed_text = response['message']['content']
             else:  # LM Studio
                 response = self.client.chat_completion_sync(
