@@ -101,15 +101,37 @@ class LMStudioClient:
                 result = response.json()
                 logger.debug(f"LM Studio generate_response raw result: {json.dumps(result, indent=2)}")
                 if 'choices' in result and len(result['choices']) > 0:
-                    # Ensure 'message' and 'content' keys exist before accessing
                     choice = result['choices'][0]
-                    if 'message' in choice and 'content' in choice['message']:
-                        return choice['message']['content'].strip()
+                    if 'message' in choice and isinstance(choice['message'], dict) and 'content' in choice['message']:
+                        # For generate_response, the original intent was to return just the content string.
+                        # However, to align with the broader goal of consistent object structure for the *consuming code*
+                        # that might be expecting a dict, we'll return a dict here too, but the primary value is the content.
+                        # The calling code for generate_response might need adjustment if it strictly expects a string.
+                        # For now, let's assume the consuming code (toolbar) is flexible or primarily uses chat_completion.
+                        # This method is less critical than chat_completion for the toolbar's text replacement.
+                        # Let's return the full message object for consistency, though it's a change from string.
+                        # OR, if generate_response is *only* ever used to get a string, this change is problematic.
+                        # Given the error context, let's assume the toolbar might be trying to access .message.content
+                        # from what generate_response returns.
+                        # To be safe and consistent with chat_completion, we'll make it return a dict.
+                        message_obj = choice['message']
+                        # Ensure role if not present, though LM Studio usually provides it.
+                        message_obj['role'] = message_obj.get('role', 'assistant')
+                        
+                        # Return a dictionary that includes the 'message' object and 'choices'
+                        # This makes it more like the chat_completion response.
+                        # The original generate_response returned a string. This is a significant change.
+                        # If direct string is needed, the caller of generate_response must adapt.
+                        # For the sake of fixing the toolbar error, let's try to provide a consistent rich object.
+                        # This method might not be the one causing the 'message' key error if toolbar uses chat_completion.
+                        # Let's return the content string as originally designed for generate_response,
+                        # and focus the structural change on chat_completion.
+                        return choice['message']['content'].strip() # Reverting to original string return for this specific method
                     else:
-                        logger.error(f"LM Studio response missing 'message' or 'content' in choice: {json.dumps(choice, indent=2)}")
-                        raise Exception("Invalid response structure from LM Studio: 'message' or 'content' missing.")
+                        logger.error(f"LM Studio generate_response missing 'message' or 'content' in choice: {json.dumps(choice, indent=2)}")
+                        raise Exception("Invalid response structure from LM Studio in generate_response: 'message' or 'content' missing.")
                 else:
-                    raise Exception("No response content received from LM Studio")
+                    raise Exception("No response content received from LM Studio in generate_response")
         except httpx.RequestError as e:
             logger.error(f"HTTP request error: {e}")
             raise Exception(f"LM Studio request failed: {str(e)}")
@@ -170,8 +192,27 @@ class LMStudioClient:
                     
                 # Parse JSON response
                 json_response = response.json()
-                logger.debug(f"Received valid JSON response from LM Studio")
-                return json_response
+                logger.debug(f"LM Studio chat_completion raw non-stream response: {json.dumps(json_response, indent=2)}")
+
+                # Ensure the response has 'choices' and the first choice has a 'message' object
+                if 'choices' in json_response and len(json_response['choices']) > 0:
+                    first_choice = json_response['choices'][0]
+                    if 'message' in first_choice and isinstance(first_choice['message'], dict):
+                        message_obj = first_choice['message']
+                        # Ensure 'role' and 'content' are present in the message object
+                        message_obj['role'] = message_obj.get('role', 'assistant')
+                        message_obj['content'] = message_obj.get('content', '')
+
+                        # Add the 'message' object at the top level for consistency with the Ollama client's adapted response
+                        json_response['message'] = message_obj
+                        logger.debug(f"LM Studio chat_completion adapted response: {json.dumps(json_response, indent=2)}")
+                        return json_response
+                    else:
+                        logger.error(f"LM Studio chat_completion response missing 'message' in first choice: {json.dumps(first_choice, indent=2)}")
+                        raise Exception("Invalid LM Studio chat_completion response: 'message' missing in first choice.")
+                else:
+                    logger.error(f"LM Studio chat_completion response missing 'choices': {json.dumps(json_response, indent=2)}")
+                    raise Exception("Invalid LM Studio chat_completion response: 'choices' missing or empty.")
                 
         except httpx.RequestError as e:
             logger.error(f"HTTP request error in LM Studio chat completion: {e}")

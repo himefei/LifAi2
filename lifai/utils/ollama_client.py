@@ -164,8 +164,46 @@ class OllamaClient:
                 response = await client.post(url, json=data, timeout=120)
                 if response.status_code == 200:
                     if stream:
-                        return await self._handle_stream_response(response)
-                    return response.json()
+                        # For streaming, _handle_stream_response should ideally yield OpenAI-like chunks
+                        # or the calling code needs to be adapted.
+                        # For now, it returns a concatenated string.
+                        # If the calling code for stream expects dicts, this needs further change.
+                        return await self._handle_stream_response(response) # This returns a string currently
+
+                    raw_ollama_response = response.json()
+                    logger.debug(f"Ollama chat_completion raw non-stream response: {json.dumps(raw_ollama_response, indent=2)}")
+
+                    # Extract and ensure the core message object is well-formed
+                    ollama_message_obj = raw_ollama_response.get("message", {"role": "assistant", "content": ""})
+                    if not isinstance(ollama_message_obj, dict):
+                        logger.warning(f"Ollama raw response 'message' field was not a dict: {ollama_message_obj}. Wrapping it.")
+                        ollama_message_obj = {"role": "assistant", "content": str(ollama_message_obj)}
+                    else:
+                        # Ensure 'content' and 'role' keys exist, providing defaults if necessary
+                        ollama_message_obj['content'] = ollama_message_obj.get('content', '')
+                        ollama_message_obj['role'] = ollama_message_obj.get('role', 'assistant')
+
+                    # Adapt to a structure that's both OpenAI-like and provides direct message access
+                    adapted_response = {
+                        "choices": [{
+                            "index": 0,
+                            "message": ollama_message_obj,  # OpenAI-style path
+                            "finish_reason": "stop" if raw_ollama_response.get("done") else "length"
+                        }],
+                        "message": ollama_message_obj,  # Direct access path, similar to Ollama's native response
+                        "model": raw_ollama_response.get("model", model),
+                        # Potentially add other fields like id, object, created, usage if needed by consumer
+                        # "id": f"chatcmpl-ollama-{raw_ollama_response.get('created_at', '')}",
+                        # "object": "chat.completion",
+                        # "created": int(time.time()), # Placeholder
+                        # "usage": {
+                        # "prompt_tokens": raw_ollama_response.get("prompt_eval_count", 0),
+                        # "completion_tokens": raw_ollama_response.get("eval_count", 0),
+                        # "total_tokens": raw_ollama_response.get("prompt_eval_count", 0) + raw_ollama_response.get("eval_count", 0)
+                        # }
+                    }
+                    logger.debug(f"Ollama chat_completion adapted response: {json.dumps(adapted_response, indent=2)}")
+                    return adapted_response
                 else:
                     error_msg = f"Chat completion failed with status {response.status_code}"
                     if response.text:
@@ -184,9 +222,27 @@ class OllamaClient:
                 if line:
                     try:
                         json_response = json.loads(line)
-                        if "response" in json_response:
-                            full_response += json_response["response"]
-                    except Exception:
+                        logger.debug(f"Ollama stream raw line content: {json_response}")
+                        content_piece = ""
+                        # Check for /api/chat structure
+                        if "message" in json_response and isinstance(json_response.get("message"), dict) and "content" in json_response["message"]:
+                            content_piece = json_response["message"]["content"]
+                        # Check for /api/generate structure
+                        elif "response" in json_response:
+                            content_piece = json_response["response"]
+                        
+                        if content_piece:
+                            full_response += content_piece
+                        
+                        # If the stream is supposed to yield structured chunks (OpenAI-like)
+                        # this part would need to construct and yield those instead of concatenating.
+                        # For now, it matches the previous behavior of returning a single string.
+
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse JSON in Ollama streaming response: {e}, line: {line[:100]}...")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error processing Ollama stream line: {e}, line: {line[:100]}...")
                         continue
             return full_response
         except Exception as e:
