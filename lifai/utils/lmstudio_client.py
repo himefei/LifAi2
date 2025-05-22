@@ -99,8 +99,15 @@ class LMStudioClient:
                 response.raise_for_status()
 
                 result = response.json()
+                logger.debug(f"LM Studio generate_response raw result: {json.dumps(result, indent=2)}")
                 if 'choices' in result and len(result['choices']) > 0:
-                    return result['choices'][0]['message']['content'].strip()
+                    # Ensure 'message' and 'content' keys exist before accessing
+                    choice = result['choices'][0]
+                    if 'message' in choice and 'content' in choice['message']:
+                        return choice['message']['content'].strip()
+                    else:
+                        logger.error(f"LM Studio response missing 'message' or 'content' in choice: {json.dumps(choice, indent=2)}")
+                        raise Exception("Invalid response structure from LM Studio: 'message' or 'content' missing.")
                 else:
                     raise Exception("No response content received from LM Studio")
         except httpx.RequestError as e:
@@ -277,14 +284,16 @@ class LMStudioClient:
                         if 'choices' in chunk and chunk['choices']:
                             # Standard OpenAI-compatible format
                             choice = chunk['choices'][0]
+                            logger.debug(f"LM Studio _handle_stream_response choice: {json.dumps(choice, indent=2)}")
                             
                             # Handle both delta format (streaming) and message format (non-streaming)
-                            if 'delta' in choice:
+                            if 'delta' in choice and choice['delta'] is not None and 'content' in choice['delta']:
                                 content = choice['delta'].get('content', '')
-                            elif 'message' in choice:
+                            elif 'message' in choice and choice['message'] is not None and 'content' in choice['message']:
                                 content = choice['message'].get('content', '')
                             else:
                                 content = ''
+                                logger.warning(f"LM Studio stream choice missing 'delta.content' or 'message.content': {json.dumps(choice, indent=2)}")
                                 
                             if content:
                                 full_response += content
