@@ -196,12 +196,35 @@ class OllamaClient:
                         # "id": f"chatcmpl-ollama-{raw_ollama_response.get('created_at', '')}",
                         # "object": "chat.completion",
                         # "created": int(time.time()), # Placeholder
-                        # "usage": {
-                        # "prompt_tokens": raw_ollama_response.get("prompt_eval_count", 0),
-                        # "completion_tokens": raw_ollama_response.get("eval_count", 0),
-                        # "total_tokens": raw_ollama_response.get("prompt_eval_count", 0) + raw_ollama_response.get("eval_count", 0)
-                        # }
+                        "usage": {
+                            "prompt_tokens": raw_ollama_response.get("prompt_eval_count", 0),
+                            "completion_tokens": raw_ollama_response.get("eval_count", 0),
+                            "total_tokens": raw_ollama_response.get("prompt_eval_count", 0) + raw_ollama_response.get("eval_count", 0)
+                        }
                     }
+                    
+                    # Log token usage and speed
+                    prompt_tokens = raw_ollama_response.get("prompt_eval_count", 0)
+                    completion_tokens = raw_ollama_response.get("eval_count", 0)
+                    total_tokens = prompt_tokens + completion_tokens
+                    eval_duration_ns = raw_ollama_response.get("eval_duration", 0) # Duration for completion tokens
+                    
+                    tokens_per_second = 0
+                    if eval_duration_ns > 0 and completion_tokens > 0:
+                        eval_duration_s = eval_duration_ns / 1.0e9  # Convert nanoseconds to seconds
+                        tokens_per_second = completion_tokens / eval_duration_s
+                        logger.info(
+                            f"Ollama Completion Tokens: {completion_tokens}, Prompt Tokens: {prompt_tokens}, Total Tokens: {total_tokens}"
+                        )
+                        logger.info(f"Ollama Generation Speed: {tokens_per_second:.2f} tokens/sec (Duration: {eval_duration_s:.2f}s)")
+                    elif completion_tokens > 0 : # If duration is zero but tokens were generated
+                         logger.info(
+                            f"Ollama Completion Tokens: {completion_tokens}, Prompt Tokens: {prompt_tokens}, Total Tokens: {total_tokens}"
+                        )
+                         logger.info(f"Ollama Generation Speed: N/A (eval_duration not available or zero)")
+                    else:
+                        logger.info(f"Ollama: No completion tokens generated or eval_duration not available.")
+
                     logger.debug(f"Ollama chat_completion adapted response: {json.dumps(adapted_response, indent=2)}")
                     return adapted_response
                 else:

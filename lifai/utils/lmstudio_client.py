@@ -15,6 +15,7 @@ import httpx
 import json
 import logging
 import asyncio
+import time
 from typing import List, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -174,6 +175,7 @@ class LMStudioClient:
             logger.debug(f"Sending request to LM Studio with data: {data}")
             
             async with httpx.AsyncClient() as client:
+                start_time = time.monotonic()
                 response = await client.post(
                     f"{self.base_url}/chat/completions",
                     headers=self.default_headers,
@@ -205,6 +207,27 @@ class LMStudioClient:
 
                         # Add the 'message' object at the top level for consistency with the Ollama client's adapted response
                         json_response['message'] = message_obj
+                        
+                        end_time = time.monotonic()
+                        duration = end_time - start_time
+
+                        if 'usage' in json_response and isinstance(json_response['usage'], dict):
+                            usage = json_response['usage']
+                            prompt_tokens = usage.get('prompt_tokens', 0)
+                            completion_tokens = usage.get('completion_tokens', 0)
+                            total_tokens = usage.get('total_tokens', 0)
+                            
+                            tokens_per_second = 0
+                            if duration > 0 and completion_tokens > 0:
+                                tokens_per_second = completion_tokens / duration
+                            
+                            logger.info(
+                                f"LM Studio Completion Tokens: {completion_tokens}, Prompt Tokens: {prompt_tokens}, Total Tokens: {total_tokens}"
+                            )
+                            logger.info(f"LM Studio Generation Speed: {tokens_per_second:.2f} tokens/sec (Duration: {duration:.2f}s)")
+                        else:
+                            logger.warning("LM Studio response did not contain 'usage' information for token tracking.")
+
                         logger.debug(f"LM Studio chat_completion adapted response: {json.dumps(json_response, indent=2)}")
                         return json_response
                     else:
