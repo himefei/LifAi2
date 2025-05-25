@@ -1,1 +1,1 @@
-{"last_model": "granite3.3:8b", "backend": "ollama"}
+{"last_model": "granite-3.3-8b-instruct", "backend": "lmstudio"}
