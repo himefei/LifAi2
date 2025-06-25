@@ -32,3 +32,24 @@ Completed a comprehensive project-wide refactoring focusing on performance, mode
 - Monitor client performance in production
 - Consider integrating LM Studio's native Python SDK for even more features
 - Evaluate additional Ollama capabilities like model management automation
+
+## User Experience Enhancement (2025-06-25)
+
+**New Feature:** Added interactive prompt flow illustration accessible via question mark button next to backend selection.
+
+**Implementation Details:**
+- Question mark help button styled with blue background (#2196F3) 
+- Dynamic content based on selected backend (Ollama vs LM Studio)
+- Rich HTML formatting with visual flow diagrams
+- Explains system prompt setup, user text processing, and API communication
+- Shows actual endpoint URLs and message flow
+
+**IMPORTANT MAINTENANCE NOTE:**
+🔄 **Future Update Requirement:** When making changes to prompt processing, API endpoints, or message flow in either LM Studio or Ollama clients, the help dialog content in `lifai/core/app_hub.py` method `show_prompt_flow_help()` must be updated accordingly to maintain accuracy.
+
+**Key Areas to Monitor for Updates:**
+- API endpoint changes (URLs, parameters)
+- Message structure modifications 
+- New features in prompt processing
+- Changes to system/user message handling
+- Performance enhancements or new capabilities

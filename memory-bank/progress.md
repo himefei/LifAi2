@@ -12,3 +12,5 @@ The LifAi project has undergone a significant refactoring. All core components h
 [2025-06-25 11:24:00] - Added user-specific configuration files to .gitignore: app_settings.json and prompts.json to prevent committing user preferences and custom prompts.
 
 [2025-06-25 11:42:00] - Major AI client refactoring completed: Enhanced LM Studio and Ollama clients with latest API features including TTL support, new embedding endpoints, improved streaming, better model management, and comprehensive error handling.
+
+[2025-06-25 12:40:00] - Added user-friendly prompt flow illustration feature: Question mark help button next to backend selection that explains how system prompts and user text are processed for both Ollama and LM Studio with visual flow diagrams.

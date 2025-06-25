@@ -168,6 +168,26 @@ class LifAi2Hub(QMainWindow):
         self.backend_combo.setCurrentText(self.settings['backend'])
         backend_layout.addWidget(self.backend_combo)
         
+        # Add help button for prompt flow explanation
+        help_btn = QPushButton("?")
+        help_btn.setFixedSize(25, 25)
+        help_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 12px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        help_btn.setToolTip("Show how prompts are processed")
+        help_btn.clicked.connect(self.show_prompt_flow_help)
+        backend_layout.addWidget(help_btn)
+        
         # Add confirm selection button
         confirm_btn = QPushButton("✓ Confirm Selection")
         confirm_btn.clicked.connect(self.confirm_backend_selection)
@@ -452,6 +472,125 @@ class LifAi2Hub(QMainWindow):
         except Exception as e:
             logging.error(f"Error switching backend: {e}")
             QMessageBox.critical(self, "Error", f"Failed to switch backend: {e}")
+
+    def show_prompt_flow_help(self):
+        """Show user-friendly illustration of how prompts are processed for each backend"""
+        current_backend = self.backend_combo.currentText()
+        
+        if current_backend == "ollama":
+            title = "🦙 Ollama - Prompt Processing Flow"
+            content = """
+<div style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333;">
+
+<h3 style="color: #2196F3; margin-bottom: 15px;">📋 How Your Prompts Are Sent to Ollama:</h3>
+
+<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #4CAF50;">
+<strong>1. System Prompt Setup:</strong><br/>
+• Your selected prompt template becomes the <span style="color: #1976D2; font-weight: bold;">"system" message</span><br/>
+• This tells Ollama how to behave and respond<br/>
+• Example: "You are a helpful writing assistant..."
+</div>
+
+<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #FF9800;">
+<strong>2. User Text Processing:</strong><br/>
+• Your selected text becomes the <span style="color: #1976D2; font-weight: bold;">"user" message</span><br/>
+• This is what you want Ollama to work with<br/>
+• Example: Your selected email text to enhance
+</div>
+
+<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #9C27B0;">
+<strong>3. API Communication:</strong><br/>
+• Sent to: <code>http://localhost:11434/api/chat</code><br/>
+• Format: JSON with "messages" array<br/>
+• Uses latest Ollama chat completion API<br/>
+• Enhanced with performance monitoring
+</div>
+
+<div style="background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 10px 0;">
+<strong>🔄 Message Flow:</strong><br/>
+<code style="background: #fff; padding: 2px 6px; border-radius: 3px;">System Prompt</code>
+→
+<code style="background: #fff; padding: 2px 6px; border-radius: 3px;">Your Text</code>
+→
+<code style="background: #fff; padding: 2px 6px; border-radius: 3px;">Ollama</code>
+→
+<code style="background: #fff; padding: 2px 6px; border-radius: 3px;">Enhanced Result</code>
+</div>
+
+<div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0;">
+<strong>💡 Pro Tip:</strong> Ollama applies prompt templates automatically and handles context efficiently with its native chat API.
+</div>
+
+</div>
+            """
+        else:  # lmstudio
+            title = "🎬 LM Studio - Prompt Processing Flow"
+            content = """
+<div style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333;">
+
+<h3 style="color: #2196F3; margin-bottom: 15px;">📋 How Your Prompts Are Sent to LM Studio:</h3>
+
+<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #4CAF50;">
+<strong>1. System Prompt Setup:</strong><br/>
+• Your selected prompt template becomes the <span style="color: #1976D2; font-weight: bold;">"system" message</span><br/>
+• This instructs the model on its role and behavior<br/>
+• Example: "You are an expert text editor..."
+</div>
+
+<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #FF9800;">
+<strong>2. User Text Processing:</strong><br/>
+• Your selected text becomes the <span style="color: #1976D2; font-weight: bold;">"user" message</span><br/>
+• This contains the content to be processed<br/>
+• Example: Your draft email that needs improvement
+</div>
+
+<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid #9C27B0;">
+<strong>3. API Communication:</strong><br/>
+• Can use: <code>http://localhost:1234/v1/chat/completions</code> (OpenAI-compatible)<br/>
+• Or: <code>http://localhost:1234/api/v0/chat/completions</code> (Native API)<br/>
+• Enhanced features: TTL support, structured outputs<br/>
+• Advanced model management and performance metrics
+</div>
+
+<div style="background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 10px 0;">
+<strong>🔄 Message Flow:</strong><br/>
+<code style="background: #fff; padding: 2px 6px; border-radius: 3px;">System Prompt</code>
+→
+<code style="background: #fff; padding: 2px 6px; border-radius: 3px;">Your Text</code>
+→
+<code style="background: #fff; padding: 2px 6px; border-radius: 3px;">LM Studio</code>
+→
+<code style="background: #fff; padding: 2px 6px; border-radius: 3px;">Processed Result</code>
+</div>
+
+<div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0;">
+<strong>💡 Pro Tip:</strong> LM Studio offers dual API support - both OpenAI-compatible and native endpoints with advanced features like TTL and structured outputs.
+</div>
+
+</div>
+            """
+        
+        # Create the help dialog
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(title)
+        dialog.setTextFormat(Qt.TextFormat.RichText)
+        dialog.setText(content)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        dialog.setIcon(QMessageBox.Icon.Information)
+        
+        # Make dialog larger and more readable
+        dialog.setStyleSheet("""
+            QMessageBox {
+                min-width: 600px;
+                min-height: 400px;
+            }
+            QMessageBox QLabel {
+                min-width: 580px;
+                max-width: 580px;
+            }
+        """)
+        
+        dialog.exec()
 
 def main():
     app = QApplication(sys.argv)
