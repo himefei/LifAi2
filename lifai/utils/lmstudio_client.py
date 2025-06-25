@@ -1,14 +1,19 @@
 """
-LMStudioClient: Async Python client for interacting with LM Studio's local LLM API.
+LMStudioClient: Enhanced async Python client for LM Studio's latest API features.
 
-This module provides asynchronous methods for model listing, chat completions, and embeddings
-using LM Studio's HTTP API. Designed for robust error handling, performance, and integration
-with LifAi2's modular architecture.
+This module provides comprehensive integration with LM Studio's native REST API and OpenAI-compatible
+endpoints, featuring the latest capabilities including TTL support, enhanced model management,
+structured outputs, and improved streaming responses.
 
 Features:
-    - Async HTTP requests for non-blocking UI and fast response.
-    - Comprehensive error handling and logging.
-    - Support for streaming responses and flexible API parameters.
+    - Native LM Studio REST API support (/api/v0/* endpoints)
+    - OpenAI-compatible endpoints for backward compatibility
+    - TTL (Time-To-Live) support for automatic model unloading
+    - Enhanced model management and information retrieval
+    - Structured output support with JSON schemas
+    - Improved streaming with better error handling
+    - Comprehensive embeddings support
+    - Async HTTP requests for non-blocking operations
 """
 
 import httpx
@@ -16,34 +21,68 @@ import json
 import logging
 import asyncio
 import time
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 
 logger = logging.getLogger(__name__)
 
 class LMStudioClient:
-    """Async client for LM Studio's local LLM API (chat, models, embeddings)."""
-    def __init__(self, base_url="http://localhost:1234/v1"):
+    """Enhanced async client for LM Studio's native and OpenAI-compatible APIs."""
+    def __init__(self, base_url="http://localhost:1234", use_native_api=True):
+        """
+        Initialize LM Studio client with support for both native and OpenAI-compatible APIs.
+        
+        Args:
+            base_url: Base URL for LM Studio server (default: http://localhost:1234)
+            use_native_api: Whether to use native REST API (/api/v0/) or OpenAI-compatible (/v1/)
+        """
         self.base_url = base_url
+        self.use_native_api = use_native_api
+        self.native_base = f"{base_url}/api/v0"
+        self.openai_base = f"{base_url}/v1"
         self.default_headers = {
             "Content-Type": "application/json"
         }
+        logger.info(f"Initialized LMStudioClient with base_url={base_url}, native_api={use_native_api}")
 
     async def fetch_models(self) -> List[str]:
         """
-        Asynchronously fetch available models from LM Studio API.
+        Asynchronously fetch available models using native LM Studio API or OpenAI-compatible endpoint.
+        
+        Returns:
+            List of model names/IDs
         """
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(f"{self.base_url}/models", timeout=10)
+                if self.use_native_api:
+                    # Use native LM Studio API for enhanced model information
+                    response = await client.get(f"{self.native_base}/models", timeout=10)
+                else:
+                    # Use OpenAI-compatible endpoint for backward compatibility
+                    response = await client.get(f"{self.openai_base}/models", timeout=10)
+                
                 response.raise_for_status()
                 models_data = response.json()
+                
                 model_names = []
-                for model in models_data.get('data', []):
-                    model_id = model.get('id', '')
-                    if model_id:
-                        model_names.append(model_id)
-                logger.info(f"Found {len(model_names)} models in LM Studio")
+                if self.use_native_api:
+                    # Native API may have different response structure
+                    if isinstance(models_data, list):
+                        model_names = [model.get('id', model.get('name', '')) for model in models_data if model]
+                    elif 'data' in models_data:
+                        model_names = [model.get('id', model.get('name', '')) for model in models_data.get('data', [])]
+                else:
+                    # OpenAI-compatible format
+                    for model in models_data.get('data', []):
+                        model_id = model.get('id', '')
+                        if model_id:
+                            model_names.append(model_id)
+                
+                # Filter out empty names
+                model_names = [name for name in model_names if name.strip()]
+                
+                logger.info(f"Found {len(model_names)} models in LM Studio (native_api={self.use_native_api})")
                 return model_names if model_names else ["No models found"]
+                
         except httpx.RequestError as e:
             logger.error(f"HTTP error connecting to LM Studio: {e}")
             return ["LM Studio connection error"]
@@ -144,112 +183,129 @@ class LMStudioClient:
         self,
         messages: List[Dict],
         model: Optional[str] = None,
-        temperature: Optional[float] = None,  # Changed from default 0.7 to None
+        temperature: Optional[float] = None,
         stream: bool = False,
-        format: Optional[Union[str, Dict]] = None
+        format: Optional[Union[str, Dict]] = None,
+        ttl: Optional[int] = None,
+        response_format: Optional[Dict] = None
     ) -> Dict:
         """
-        Asynchronously generate a chat completion with enhanced features.
+        Enhanced chat completion with support for TTL, structured outputs, and both API endpoints.
+        
+        Args:
+            messages: List of chat messages
+            model: Model identifier
+            temperature: Sampling temperature
+            stream: Enable streaming responses
+            format: Response format (legacy parameter)
+            ttl: Time-to-live in seconds for automatic model unloading
+            response_format: Structured output schema for JSON responses
+        
+        Returns:
+            Chat completion response dictionary
         """
         try:
-            # Build request data with only non-None parameters
+            # Choose API endpoint based on configuration
+            if self.use_native_api:
+                endpoint = f"{self.native_base}/chat/completions"
+            else:
+                endpoint = f"{self.openai_base}/chat/completions"
+            
+            # Build request data with enhanced features
             data = {
                 "messages": messages,
                 "stream": stream
             }
             
-            # Only include temperature if it's provided
+            # Add optional parameters
             if temperature is not None:
                 data["temperature"] = temperature
-                
-            # Include model if provided
             if model:
                 data["model"] = model
+            if ttl is not None:
+                data["ttl"] = ttl
                 
-            if format:
+            # Handle response format (structured outputs)
+            if response_format:
+                data["response_format"] = response_format
+            elif format:
+                # Legacy format parameter support
                 data["response_format"] = {"type": format} if isinstance(format, str) else format
 
-            # Increase timeout for reasoning models which may take longer
-            timeout = 120  # Increased from 30 to 120 seconds
+            # Enhanced timeout for complex models and reasoning
+            timeout = 120
             
-            logger.debug(f"Sending request to LM Studio with data: {data}")
+            logger.debug(f"Sending enhanced chat completion request to LM Studio: {endpoint}")
+            logger.debug(f"Request data: {json.dumps(data, indent=2)}")
             
             async with httpx.AsyncClient() as client:
                 start_time = time.monotonic()
                 response = await client.post(
-                    f"{self.base_url}/chat/completions",
+                    endpoint,
                     headers=self.default_headers,
                     json=data,
                     timeout=timeout
                 )
                 
-                # Log response status
-                logger.debug(f"LM Studio response status: {response.status_code}")
-                
-                # Raise for HTTP errors
                 response.raise_for_status()
 
                 if stream:
                     return await self._handle_stream_response(response)
                     
-                # Parse JSON response
+                # Parse and enhance response
                 json_response = response.json()
-                logger.debug(f"LM Studio chat_completion raw non-stream response: {json.dumps(json_response, indent=2)}")
-
-                # Ensure the response has 'choices' and the first choice has a 'message' object
+                
+                # Ensure consistent response structure
                 if 'choices' in json_response and len(json_response['choices']) > 0:
                     first_choice = json_response['choices'][0]
                     if 'message' in first_choice and isinstance(first_choice['message'], dict):
                         message_obj = first_choice['message']
-                        # Ensure 'role' and 'content' are present in the message object
                         message_obj['role'] = message_obj.get('role', 'assistant')
                         message_obj['content'] = message_obj.get('content', '')
 
-                        # Add the 'message' object at the top level for consistency with the Ollama client's adapted response
+                        # Add top-level message for consistent access
                         json_response['message'] = message_obj
                         
+                        # Calculate performance metrics
                         end_time = time.monotonic()
                         duration = end_time - start_time
 
-                        if 'usage' in json_response and isinstance(json_response['usage'], dict):
+                        # Enhanced usage tracking
+                        if 'usage' in json_response:
                             usage = json_response['usage']
                             prompt_tokens = usage.get('prompt_tokens', 0)
                             completion_tokens = usage.get('completion_tokens', 0)
                             total_tokens = usage.get('total_tokens', 0)
                             
-                            tokens_per_second = 0
-                            if duration > 0 and completion_tokens > 0:
-                                tokens_per_second = completion_tokens / duration
+                            tokens_per_second = completion_tokens / duration if duration > 0 and completion_tokens > 0 else 0
                             
-                            logger.info(
-                                f"LM Studio Completion Tokens: {completion_tokens}, Prompt Tokens: {prompt_tokens}, Total Tokens: {total_tokens}"
-                            )
-                            logger.info(f"LM Studio Generation Speed: {tokens_per_second:.2f} tokens/sec (Duration: {duration:.2f}s)")
-                        else:
-                            logger.warning("LM Studio response did not contain 'usage' information for token tracking.")
+                            logger.info(f"LM Studio Enhanced - Tokens: {completion_tokens}/{prompt_tokens}/{total_tokens} (completion/prompt/total)")
+                            logger.info(f"LM Studio Performance: {tokens_per_second:.2f} tokens/sec, Duration: {duration:.2f}s")
+                            
+                            # Add performance metrics to response
+                            json_response['performance'] = {
+                                'tokens_per_second': tokens_per_second,
+                                'duration_seconds': duration,
+                                'time_to_first_token': json_response.get('stats', {}).get('time_to_first_token', 0)
+                            }
 
-                        logger.debug(f"LM Studio chat_completion adapted response: {json.dumps(json_response, indent=2)}")
                         return json_response
                     else:
-                        logger.error(f"LM Studio chat_completion response missing 'message' in first choice: {json.dumps(first_choice, indent=2)}")
-                        raise Exception("Invalid LM Studio chat_completion response: 'message' missing in first choice.")
+                        raise Exception("Invalid response structure: missing 'message' in first choice")
                 else:
-                    logger.error(f"LM Studio chat_completion response missing 'choices': {json.dumps(json_response, indent=2)}")
-                    raise Exception("Invalid LM Studio chat_completion response: 'choices' missing or empty.")
+                    raise Exception("Invalid response structure: missing or empty 'choices'")
                 
         except httpx.RequestError as e:
-            logger.error(f"HTTP request error in LM Studio chat completion: {e}")
-            raise Exception(f"LM Studio chat completion failed: {str(e)}")
+            logger.error(f"HTTP request error in enhanced chat completion: {e}")
+            raise Exception(f"LM Studio request failed: {str(e)}")
         except httpx.HTTPStatusError as e:
-            # More specific error for HTTP status errors
-            logger.error(f"HTTP status error in LM Studio chat completion: {e.response.status_code} - {e.response.text}")
-            raise Exception(f"LM Studio returned error status {e.response.status_code}: {e.response.text}")
+            logger.error(f"HTTP status error: {e.response.status_code} - {e.response.text}")
+            raise Exception(f"LM Studio error {e.response.status_code}: {e.response.text}")
         except json.JSONDecodeError as e:
-            # Handle invalid JSON responses
-            logger.error(f"Invalid JSON response from LM Studio: {e}")
-            raise Exception(f"LM Studio returned invalid JSON response: {str(e)}")
+            logger.error(f"Invalid JSON response: {e}")
+            raise Exception(f"Invalid JSON response: {str(e)}")
         except Exception as e:
-            logger.error(f"Error in LM Studio chat completion: {e}")
+            logger.error(f"Error in enhanced chat completion: {e}")
             raise
 
     def chat_completion_sync(
@@ -294,30 +350,128 @@ class LMStudioClient:
         model: Optional[str] = None
     ) -> Dict:
         """
-        Asynchronously generate embeddings using LM Studio's API.
+        Enhanced embeddings generation with support for both API endpoints.
+        
+        Args:
+            input_text: Text or list of texts to embed
+            model: Embedding model identifier
+            
+        Returns:
+            Embeddings response with vectors and metadata
         """
         try:
+            # Choose API endpoint
+            if self.use_native_api:
+                endpoint = f"{self.native_base}/embeddings"
+            else:
+                endpoint = f"{self.openai_base}/embeddings"
+            
+            # Prepare request data
             data = {
                 "input": input_text if isinstance(input_text, list) else [input_text]
             }
             if model:
                 data["model"] = model
 
+            logger.debug(f"Generating embeddings via {endpoint}")
+            
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"{self.base_url}/embeddings",
+                    endpoint,
                     headers=self.default_headers,
                     json=data,
-                    timeout=30
+                    timeout=60  # Increased timeout for large batches
                 )
                 response.raise_for_status()
-                return response.json()
+                
+                embeddings_response = response.json()
+                
+                # Add metadata for enhanced tracking
+                if 'usage' in embeddings_response:
+                    logger.info(f"LM Studio Embeddings - Processed {len(data['input'])} inputs, "
+                              f"Tokens: {embeddings_response['usage'].get('total_tokens', 'N/A')}")
+                
+                return embeddings_response
+                
         except httpx.RequestError as e:
             logger.error(f"HTTP request error generating embeddings: {e}")
             raise Exception(f"LM Studio embeddings request failed: {str(e)}")
         except Exception as e:
             logger.error(f"Error generating embeddings: {e}")
             raise
+
+    async def get_model_info(self, model: str) -> Dict:
+        """
+        Get detailed information about a specific model.
+        
+        Args:
+            model: Model identifier
+            
+        Returns:
+            Model information including architecture, parameters, etc.
+        """
+        try:
+            if self.use_native_api:
+                endpoint = f"{self.native_base}/models/{model}"
+            else:
+                # OpenAI-compatible endpoint doesn't have individual model info
+                endpoint = f"{self.openai_base}/models"
+                
+            async with httpx.AsyncClient() as client:
+                response = await client.get(endpoint, timeout=10)
+                response.raise_for_status()
+                
+                if self.use_native_api:
+                    return response.json()
+                else:
+                    # Filter from models list
+                    models_data = response.json()
+                    for model_data in models_data.get('data', []):
+                        if model_data.get('id') == model:
+                            return model_data
+                    raise Exception(f"Model '{model}' not found")
+                    
+        except httpx.RequestError as e:
+            logger.error(f"Error getting model info: {e}")
+            raise Exception(f"Failed to get model info: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error getting model info: {e}")
+            raise
+
+    async def list_loaded_models(self) -> List[Dict]:
+        """
+        List currently loaded models in memory.
+        
+        Returns:
+            List of loaded model information
+        """
+        try:
+            if self.use_native_api:
+                # Use native API for enhanced loaded models info
+                endpoint = f"{self.native_base}/models/loaded"
+            else:
+                # Fallback to general models endpoint
+                endpoint = f"{self.openai_base}/models"
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(endpoint, timeout=10)
+                response.raise_for_status()
+                
+                models_data = response.json()
+                
+                if isinstance(models_data, dict) and 'data' in models_data:
+                    return models_data['data']
+                elif isinstance(models_data, list):
+                    return models_data
+                else:
+                    return []
+                    
+        except httpx.RequestError as e:
+            logger.warning(f"Could not get loaded models info: {e}")
+            return []
+        except Exception as e:
+            logger.warning(f"Error getting loaded models: {e}")
+            return []
 
     async def _handle_stream_response(self, response: httpx.Response) -> str:
         """

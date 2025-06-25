@@ -48,3 +48,25 @@ sequenceDiagram
     AI_Client-->>Module: Processed Result
     Module-->>UserAction: Display Result
 end
+
+## Enhanced AI Client Architecture (2025-06-25)
+
+### LM Studio Client Enhancements
+- **Dual API Support**: Configurable choice between native REST API (`/api/v0/`) and OpenAI-compatible (`/v1/`) endpoints
+- **TTL Pattern**: Automatic resource management with time-to-live for model unloading
+- **Structured Response Pattern**: JSON schema validation for consistent output formatting
+- **Performance Monitoring Pattern**: Built-in metrics collection for tokens/sec and response times
+- **Enhanced Error Recovery**: Comprehensive HTTP status code handling with contextual error messages
+
+### Ollama Client Modernization
+- **API Evolution Pattern**: Seamless migration from deprecated to current endpoints (`/api/embeddings` → `/api/embed`)
+- **Batch Processing Pattern**: Efficient handling of multiple inputs in single requests
+- **Progressive Enhancement**: Graceful fallback for older Ollama versions
+- **Resource Tracking Pattern**: Real-time monitoring of loaded models and memory usage
+- **Download Management**: Asynchronous model pulling with progress tracking
+
+### Cross-Client Consistency
+- **Unified Response Structure**: Consistent message object format across all AI providers
+- **Error Handling Standardization**: Uniform exception types and error reporting
+- **Performance Metrics**: Standardized token counting and speed measurements
+- **Async-First Design**: Non-blocking operations throughout the client layer

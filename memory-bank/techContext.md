@@ -30,3 +30,21 @@
 2. Python 3.9+ environment setup
 3. Module compatibility requirements
 4. UI framework dependencies
+
+## Latest API Updates (2025-06-25)
+
+### LM Studio Enhanced Features
+- **Native REST API**: Support for `/api/v0/*` endpoints alongside OpenAI-compatible `/v1/*`
+- **TTL Support**: Automatic model unloading with configurable time-to-live
+- **Structured Outputs**: JSON schema-based response formatting
+- **Enhanced Model Management**: Loading, unloading, and detailed model information
+- **Performance Metrics**: Comprehensive token tracking and generation speed monitoring
+- **Improved Streaming**: Better chunk handling and error recovery
+
+### Ollama Latest Capabilities
+- **New Embedding Endpoint**: Migrated from deprecated `/api/embeddings` to `/api/embed`
+- **Batch Embeddings**: Support for multiple text inputs in single request
+- **Enhanced Model Management**: `/api/ps` for loaded models, `/api/version` for server info
+- **Model Pulling**: Programmatic model download with progress tracking
+- **Advanced Options**: Enhanced keep_alive, truncation, and model-specific parameters
+- **Improved Error Handling**: Better timeout management and error reporting

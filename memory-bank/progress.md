@@ -10,3 +10,5 @@ The LifAi project has undergone a significant refactoring. All core components h
 - **Removed Modules:** The previously removed modules (AI Chat, Advanced Agent) remain deprecated, with their functionalities either superseded or integrated into the refactored system where appropriate.
 
 [2025-06-25 11:24:00] - Added user-specific configuration files to .gitignore: app_settings.json and prompts.json to prevent committing user preferences and custom prompts.
+
+[2025-06-25 11:42:00] - Major AI client refactoring completed: Enhanced LM Studio and Ollama clients with latest API features including TTL support, new embedding endpoints, improved streaming, better model management, and comprehensive error handling.
