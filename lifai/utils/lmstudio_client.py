@@ -29,11 +29,12 @@ class LMStudioClient:
     """Enhanced async client for LM Studio's native and OpenAI-compatible APIs."""
     def __init__(self, base_url="http://localhost:1234", use_native_api=True):
         """
-        Initialize LM Studio client with support for both native and OpenAI-compatible APIs.
+        Initialize LM Studio client optimized for native API performance and features.
         
         Args:
             base_url: Base URL for LM Studio server (default: http://localhost:1234)
             use_native_api: Whether to use native REST API (/api/v0/) or OpenAI-compatible (/v1/)
+                           Default: True (recommended for best performance and features)
         """
         self.base_url = base_url
         self.use_native_api = use_native_api
@@ -42,7 +43,17 @@ class LMStudioClient:
         self.default_headers = {
             "Content-Type": "application/json"
         }
-        logger.info(f"Initialized LMStudioClient with base_url={base_url}, native_api={use_native_api}")
+        
+        # Enhanced configuration for native API optimization
+        self.default_ttl = 600  # 10 minutes default TTL for models
+        self.enable_performance_tracking = True
+        self.request_timeout = 120  # Extended timeout for reasoning models
+        
+        logger.info(f"Initialized LMStudioClient with native API v0 optimization: base_url={base_url}, native_api={use_native_api}")
+        if use_native_api:
+            logger.info("Using LM Studio native API v0 for enhanced performance and features")
+        else:
+            logger.info("Using OpenAI-compatible API v1 for maximum compatibility")
 
     async def fetch_models(self) -> List[str]:
         """
@@ -187,10 +198,12 @@ class LMStudioClient:
         stream: bool = False,
         format: Optional[Union[str, Dict]] = None,
         ttl: Optional[int] = None,
-        response_format: Optional[Dict] = None
+        response_format: Optional[Dict] = None,
+        max_tokens: Optional[int] = None,
+        enable_performance_tracking: Optional[bool] = None
     ) -> Dict:
         """
-        Enhanced chat completion with support for TTL, structured outputs, and both API endpoints.
+        Enhanced chat completion optimized for LM Studio native API v0 benefits.
         
         Args:
             messages: List of chat messages
@@ -198,20 +211,25 @@ class LMStudioClient:
             temperature: Sampling temperature
             stream: Enable streaming responses
             format: Response format (legacy parameter)
-            ttl: Time-to-live in seconds for automatic model unloading
+            ttl: Time-to-live in seconds (defaults to 600s for native API)
             response_format: Structured output schema for JSON responses
+            max_tokens: Maximum tokens to generate
+            enable_performance_tracking: Enable detailed performance metrics
         
         Returns:
-            Chat completion response dictionary
+            Enhanced chat completion response with native API benefits
         """
         try:
             # Choose API endpoint based on configuration
             if self.use_native_api:
                 endpoint = f"{self.native_base}/chat/completions"
+                # Use default TTL for native API if not specified
+                if ttl is None:
+                    ttl = self.default_ttl
             else:
                 endpoint = f"{self.openai_base}/chat/completions"
             
-            # Build request data with enhanced features
+            # Build request data with enhanced native API features
             data = {
                 "messages": messages,
                 "stream": stream
@@ -222,8 +240,13 @@ class LMStudioClient:
                 data["temperature"] = temperature
             if model:
                 data["model"] = model
-            if ttl is not None:
+            if max_tokens is not None:
+                data["max_tokens"] = max_tokens
+                
+            # Native API exclusive features
+            if self.use_native_api and ttl is not None:
                 data["ttl"] = ttl
+                logger.debug(f"Using TTL: {ttl}s for automatic model management")
                 
             # Handle response format (structured outputs)
             if response_format:
@@ -232,11 +255,12 @@ class LMStudioClient:
                 # Legacy format parameter support
                 data["response_format"] = {"type": format} if isinstance(format, str) else format
 
-            # Enhanced timeout for complex models and reasoning
-            timeout = 120
+            # Use extended timeout for complex models
+            timeout = self.request_timeout
             
-            logger.debug(f"Sending enhanced chat completion request to LM Studio: {endpoint}")
-            logger.debug(f"Request data: {json.dumps(data, indent=2)}")
+            logger.debug(f"LM Studio native API v0 request to: {endpoint}")
+            if self.use_native_api:
+                logger.debug(f"Native API features enabled - TTL: {ttl}s, Performance tracking: {self.enable_performance_tracking}")
             
             async with httpx.AsyncClient() as client:
                 start_time = time.monotonic()
@@ -252,7 +276,7 @@ class LMStudioClient:
                 if stream:
                     return await self._handle_stream_response(response)
                     
-                # Parse and enhance response
+                # Parse and enhance response with native API benefits
                 json_response = response.json()
                 
                 # Ensure consistent response structure
@@ -266,27 +290,56 @@ class LMStudioClient:
                         # Add top-level message for consistent access
                         json_response['message'] = message_obj
                         
-                        # Calculate performance metrics
+                        # Enhanced performance tracking for native API
                         end_time = time.monotonic()
                         duration = end_time - start_time
 
-                        # Enhanced usage tracking
-                        if 'usage' in json_response:
-                            usage = json_response['usage']
+                        if self.enable_performance_tracking:
+                            # Extract native API exclusive metrics
+                            usage = json_response.get('usage', {})
+                            stats = json_response.get('stats', {})
+                            model_info = json_response.get('model_info', {})
+                            runtime = json_response.get('runtime', {})
+                            
                             prompt_tokens = usage.get('prompt_tokens', 0)
                             completion_tokens = usage.get('completion_tokens', 0)
                             total_tokens = usage.get('total_tokens', 0)
                             
-                            tokens_per_second = completion_tokens / duration if duration > 0 and completion_tokens > 0 else 0
+                            # Native API performance metrics
+                            tokens_per_second_api = stats.get('tokens_per_second', 0)
+                            time_to_first_token = stats.get('time_to_first_token', 0)
+                            generation_time = stats.get('generation_time', 0)
+                            stop_reason = stats.get('stop_reason', 'unknown')
                             
-                            logger.info(f"LM Studio Enhanced - Tokens: {completion_tokens}/{prompt_tokens}/{total_tokens} (completion/prompt/total)")
-                            logger.info(f"LM Studio Performance: {tokens_per_second:.2f} tokens/sec, Duration: {duration:.2f}s")
+                            # Calculate our own metrics for comparison
+                            tokens_per_second_calc = completion_tokens / duration if duration > 0 and completion_tokens > 0 else 0
                             
-                            # Add performance metrics to response
+                            # Enhanced logging with native API benefits
+                            logger.info(f"LM Studio Native API v0 - Model: {model_info.get('arch', 'unknown')} "
+                                      f"({model_info.get('quant', 'unknown')} quantization)")
+                            logger.info(f"Tokens: {completion_tokens}/{prompt_tokens}/{total_tokens} "
+                                      f"(completion/prompt/total)")
+                            logger.info(f"Performance: {tokens_per_second_api:.2f} tok/s (API), "
+                                      f"{tokens_per_second_calc:.2f} tok/s (calculated)")
+                            logger.info(f"Timing: {time_to_first_token:.3f}s first token, "
+                                      f"{generation_time:.3f}s generation, {duration:.3f}s total")
+                            logger.info(f"Stop reason: {stop_reason}")
+                            
+                            if runtime:
+                                logger.info(f"Runtime: {runtime.get('name', 'unknown')} v{runtime.get('version', 'unknown')}")
+                            
+                            # Add comprehensive performance metrics to response
                             json_response['performance'] = {
-                                'tokens_per_second': tokens_per_second,
-                                'duration_seconds': duration,
-                                'time_to_first_token': json_response.get('stats', {}).get('time_to_first_token', 0)
+                                'tokens_per_second_api': tokens_per_second_api,
+                                'tokens_per_second_calculated': tokens_per_second_calc,
+                                'time_to_first_token': time_to_first_token,
+                                'generation_time': generation_time,
+                                'total_duration': duration,
+                                'stop_reason': stop_reason,
+                                'model_architecture': model_info.get('arch'),
+                                'quantization': model_info.get('quant'),
+                                'context_length': model_info.get('context_length'),
+                                'runtime_info': runtime
                             }
 
                         return json_response
@@ -296,16 +349,16 @@ class LMStudioClient:
                     raise Exception("Invalid response structure: missing or empty 'choices'")
                 
         except httpx.RequestError as e:
-            logger.error(f"HTTP request error in enhanced chat completion: {e}")
-            raise Exception(f"LM Studio request failed: {str(e)}")
+            logger.error(f"HTTP request error in LM Studio native API: {e}")
+            raise Exception(f"LM Studio native API request failed: {str(e)}")
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP status error: {e.response.status_code} - {e.response.text}")
-            raise Exception(f"LM Studio error {e.response.status_code}: {e.response.text}")
+            logger.error(f"LM Studio native API HTTP error: {e.response.status_code} - {e.response.text}")
+            raise Exception(f"LM Studio native API error {e.response.status_code}: {e.response.text}")
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON response: {e}")
-            raise Exception(f"Invalid JSON response: {str(e)}")
+            logger.error(f"Invalid JSON response from LM Studio native API: {e}")
+            raise Exception(f"Invalid JSON response from native API: {str(e)}")
         except Exception as e:
-            logger.error(f"Error in enhanced chat completion: {e}")
+            logger.error(f"Error in LM Studio native API chat completion: {e}")
             raise
 
     def chat_completion_sync(

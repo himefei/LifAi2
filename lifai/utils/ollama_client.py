@@ -32,8 +32,7 @@ class OllamaClient:
         self.base_url = base_url
         self.api_base = f"{base_url}/api"
         logger.info(f"Initializing enhanced OllamaClient with base URL: {base_url}")
-        # Test connection on init
-        asyncio.create_task(self.test_connection())
+        # Note: Connection test will be performed when first method is called
 
     async def test_connection(self) -> bool:
         """Enhanced connection test with version information."""

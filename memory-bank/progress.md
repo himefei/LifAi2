@@ -14,3 +14,7 @@ The LifAi project has undergone a significant refactoring. All core components h
 [2025-06-25 11:42:00] - Major AI client refactoring completed: Enhanced LM Studio and Ollama clients with latest API features including TTL support, new embedding endpoints, improved streaming, better model management, and comprehensive error handling.
 
 [2025-06-25 12:40:00] - Added user-friendly prompt flow illustration feature: Question mark help button next to backend selection that explains how system prompts and user text are processed for both Ollama and LM Studio with visual flow diagrams.
+
+[2025-06-25 12:42:00] - Fixed async initialization error in OllamaClient: Removed asyncio.create_task() from __init__ method to prevent "no running event loop" runtime error during application startup.
+
+[2025-06-25 12:53:00] - Optimized LM Studio client for native API v0: Switched default to /api/v0/ endpoints, added default TTL (600s), enhanced performance tracking with detailed metrics, and updated help dialog to highlight native API benefits.
