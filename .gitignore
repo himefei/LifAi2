@@ -39,6 +39,9 @@ local_settings.py
 instance/
 .env.local
 .env.*.local
+# Application configuration files (user-specific)
+lifai/config/app_settings.json
+lifai/modules/prompt_editor/prompts.json
 
 # Jupyter Notebook
 .ipynb_checkpoints
