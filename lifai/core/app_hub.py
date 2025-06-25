@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QComboBox, QPushButton, QFrame, QTextEdit, QScrollArea,
-                            QMessageBox)
+                            QMessageBox, QDialog)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap, QFont
 import logging
@@ -179,6 +179,9 @@ class LifAi2Hub(QMainWindow):
                 border-radius: 12px;
                 font-weight: bold;
                 font-size: 12px;
+                text-align: center;
+                padding: 0px;
+                margin: 0px;
             }
             QPushButton:hover {
                 background-color: #1976D2;
@@ -578,23 +581,61 @@ class LifAi2Hub(QMainWindow):
 </div>
             """
         
-        # Create the help dialog
-        dialog = QMessageBox(self)
+        # Create custom dialog for better layout control
+        dialog = QDialog(self)
         dialog.setWindowTitle(title)
-        dialog.setTextFormat(Qt.TextFormat.RichText)
-        dialog.setText(content)
-        dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
-        dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setModal(True)
+        dialog.resize(700, 500)
         
-        # Make dialog larger and more readable
-        dialog.setStyleSheet("""
-            QMessageBox {
-                min-width: 600px;
-                min-height: 400px;
+        # Create layout
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        # Create content label with proper formatting
+        content_label = QLabel(content)
+        content_label.setTextFormat(Qt.TextFormat.RichText)
+        content_label.setWordWrap(True)
+        content_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        content_label.setStyleSheet("""
+            QLabel {
+                background-color: white;
+                padding: 15px;
+                border-radius: 8px;
+                border: 1px solid #e0e0e0;
             }
-            QMessageBox QLabel {
-                min-width: 580px;
-                max-width: 580px;
+        """)
+        
+        # Add content to layout
+        layout.addWidget(content_label)
+        
+        # Create OK button
+        ok_button = QPushButton("OK")
+        ok_button.setFixedSize(80, 30)
+        ok_button.clicked.connect(dialog.accept)
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        
+        # Create button layout
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(ok_button)
+        layout.addLayout(button_layout)
+        
+        # Set dialog stylesheet
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f5f5f5;
             }
         """)
         
