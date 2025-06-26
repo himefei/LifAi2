@@ -56,8 +56,19 @@
 ## 🎮 How to Use
 
 1. Launch the app:
+
+   **🎯 Recommended: Console-free launch**
+   - Double-click `run.pyw` in Windows Explorer
+   - Clean launch without console window
+   
+   **🛠️ For debugging (with console window)**
    ```bash
    python run.py
+   ```
+   
+   **💡 Note:** If double-clicking `run.pyw` doesn't work, you can also run:
+   ```bash
+   pythonw run.pyw
    ```
 2. Click the "Toggle Toolbar" button in the app hub
 3. Select a prompt from the toolbar's dropdown menu (edit/manage prompts via the Prompt Editor)
