@@ -20,3 +20,9 @@ The LifAi project has undergone a significant refactoring. All core components h
 [2025-06-25 12:53:00] - Optimized LM Studio client for native API v0: Switched default to /api/v0/ endpoints, added default TTL (600s), enhanced performance tracking with detailed metrics, and updated help dialog to highlight native API benefits.
 
 [2025-06-25 13:58:00] - Fixed UI display issues in help dialog: Centered question mark button text with proper padding/margins, and completely redesigned help dialog using custom QDialog instead of QMessageBox to eliminate spacing gaps and provide better layout control with clean, professional appearance.
+
+
+[2025-06-26 16:38:00] - Fixed Git tracking issue: Removed app_settings.json and prompts.json from Git tracking using 'git rm --cached' command. These files were already in .gitignore but continued showing in VSCode changes because they were previously tracked. Files are now properly ignored.
+
+
+[2025-06-26 16:41:00] - Enhanced prompt backup system: Implemented automatic backup rotation in prompt editor that maintains only the 5 most recent backup files (.bak). Added _cleanup_old_backups() method to automatically remove older backups when saving, preventing unlimited accumulation of backup files.

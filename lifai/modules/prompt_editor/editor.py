@@ -10,6 +10,7 @@ Implements modular, plugin-style architecture and robust error handling.
 import os
 import json
 import uuid
+import glob
 from datetime import datetime
 from typing import Dict, Callable
 from PyQt6.QtWidgets import (
@@ -94,9 +95,10 @@ class PromptEditorWindow(QMainWindow):
 
     def save_prompts_json(self):
         """
-        Save prompts to the JSON file, with optional backup.
+        Save prompts to the JSON file, with optional backup rotation.
 
         If backups are enabled in settings, the previous file is renamed with a timestamp.
+        Maintains only the 5 most recent backups, automatically removing older ones.
         Handles errors gracefully and notifies the user if saving fails.
 
         Returns:
@@ -104,8 +106,13 @@ class PromptEditorWindow(QMainWindow):
         """
         try:
             if os.path.exists(self.prompts_file) and self.settings.get("prompt_backups", True):
+                # Create backup with timestamp
                 backup_path = f"{self.prompts_file}.{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
                 os.rename(self.prompts_file, backup_path)
+                
+                # Clean up old backups, keeping only the 5 most recent
+                self._cleanup_old_backups()
+                
             with open(self.prompts_file, "w", encoding="utf-8") as f:
                 json.dump(self.prompts_data, f, indent=2, ensure_ascii=False)
             logger.info("Saved prompts to JSON successfully")
@@ -114,6 +121,36 @@ class PromptEditorWindow(QMainWindow):
             logger.error(f"Error saving prompts to JSON: {e}")
             self.show_error(f"Failed to save prompts: {e}")
             return False
+
+    def _cleanup_old_backups(self, max_backups=5):
+        """
+        Remove old backup files, keeping only the most recent ones.
+        
+        Args:
+            max_backups (int): Maximum number of backup files to retain (default: 5)
+        """
+        try:
+            # Find all backup files for this prompts.json
+            backup_pattern = f"{self.prompts_file}.*.bak"
+            backup_files = glob.glob(backup_pattern)
+            
+            if len(backup_files) <= max_backups:
+                return  # No cleanup needed
+            
+            # Sort by modification time (newest first)
+            backup_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+            
+            # Remove oldest backups beyond the limit
+            files_to_remove = backup_files[max_backups:]
+            for old_backup in files_to_remove:
+                try:
+                    os.remove(old_backup)
+                    logger.info(f"Removed old backup: {os.path.basename(old_backup)}")
+                except OSError as e:
+                    logger.warning(f"Could not remove old backup {old_backup}: {e}")
+                    
+        except Exception as e:
+            logger.warning(f"Error during backup cleanup: {e}")
 
     def setup_ui(self):
         self.setWindowTitle("Prompt Editor")
