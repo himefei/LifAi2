@@ -726,8 +726,11 @@ class FloatingToolbarModule(QMainWindow):
             # Prepare messages
             messages = self._prepare_messages(prompt_info, text)
             
+            # Get temperature from prompt (default to 0.7 if not specified)
+            temperature = prompt_info.get('temperature', 0.7) if isinstance(prompt_info, dict) else 0.7
+            
             # Process with LLM
-            processed_text = self._call_llm(messages)
+            processed_text = self._call_llm(messages, temperature)
             
             # Emit results
             self.text_processed.emit(processed_text)
@@ -753,18 +756,20 @@ class FloatingToolbarModule(QMainWindow):
             {"role": "user", "content": text}
         ]
     
-    def _call_llm(self, messages: List[Dict[str, str]]) -> str:
-        """Call the LLM with prepared messages"""
+    def _call_llm(self, messages: List[Dict[str, str]], temperature: Optional[float] = None) -> str:
+        """Call the LLM with prepared messages and optional temperature"""
         if self.client_type == "ollama":
             response = self.client.chat_completion_sync(
                 model=self.settings.get('model', 'mistral'),
-                messages=messages
+                messages=messages,
+                temperature=temperature
             )
             return response['message']['content']
         else:  # LM Studio
             response = self.client.chat_completion_sync(
                 messages=messages,
-                model=self.settings.get('model', 'mistral')
+                model=self.settings.get('model', 'mistral'),
+                temperature=temperature
             )
             return response['choices'][0]['message']['content']
     

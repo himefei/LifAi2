@@ -60,3 +60,6 @@ Both modules now follow SOLID principles, have better testability, improved main
 
 
 [2025-06-26 17:02:00] - Finalized console-free launch solution: Removed problematic launch.bat file due to PATH issues. Simplified to focus on working solution: run.pyw provides reliable console-free launching via double-click. Updated README.md with clean, simple instructions emphasizing run.pyw as the primary method with pythonw command as backup option.
+
+
+[2025-06-27 14:16:00] - Added custom temperature settings for AI prompts: Enhanced prompt editor with temperature control (0.0-2.0) for each system prompt. Updated both Ollama and LM Studio clients to use per-prompt temperature settings. Users can now fine-tune AI creativity/randomness individually for each prompt template via intuitive spinbox control in prompt editor UI.
