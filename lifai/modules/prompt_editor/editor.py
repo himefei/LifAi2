@@ -11,6 +11,7 @@ import os
 import json
 import uuid
 import glob
+import shutil
 from datetime import datetime
 from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass
@@ -91,7 +92,8 @@ class PromptStorageManager:
         """Create timestamped backup of current file"""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_path = f"{self.prompts_file}.{timestamp}.bak"
-        os.rename(str(self.prompts_file), backup_path)
+        shutil.copy2(str(self.prompts_file), backup_path)
+        logger.info(f"Created backup: {os.path.basename(backup_path)}")
     
     def _cleanup_old_backups(self, max_backups: int = DEFAULT_MAX_BACKUPS) -> None:
         """Remove old backup files, keeping only the most recent ones"""
