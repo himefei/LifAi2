@@ -63,3 +63,6 @@ Both modules now follow SOLID principles, have better testability, improved main
 
 
 [2025-06-27 14:16:00] - Added custom temperature settings for AI prompts: Enhanced prompt editor with temperature control (0.0-2.0) for each system prompt. Updated both Ollama and LM Studio clients to use per-prompt temperature settings. Users can now fine-tune AI creativity/randomness individually for each prompt template via intuitive spinbox control in prompt editor UI.
+
+
+[2025-06-27 14:31:00] - Updated README.md to reflect current project state: Comprehensively revised README to showcase latest features including custom temperature controls, advanced AI client integrations, async architecture modernization, and enhanced prompt management. Updated sections include improved feature descriptions, current requirements, detailed usage guide with temperature recommendations, modern architecture overview, and acknowledgment of recent enhancements.
