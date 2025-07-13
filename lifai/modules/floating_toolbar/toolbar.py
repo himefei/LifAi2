@@ -160,9 +160,17 @@ class TextFilter:
     
     @staticmethod
     def filter_reasoning_chain(text: str) -> str:
-        """Filter out reasoning model's chain of thoughts"""
+        """
+        DEPRECATED: Legacy filter for reasoning chains.
+        
+        This method is kept for backward compatibility but should not be needed
+        when using native reasoning token support from Ollama/LM Studio.
+        
+        Filter out reasoning model's chain of thoughts using regex as fallback.
+        """
         try:
             import re
+            logger.warning("Using legacy reasoning chain filtering. Consider enabling native thinking tokens in AI client.")
             # Remove any text between <think> and </think> tags including the tags
             filtered_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
             # Remove any extra whitespace that may have been left
@@ -171,6 +179,22 @@ class TextFilter:
         except Exception as e:
             logger.error(f"Error filtering reasoning chain: {e}")
             return text
+    
+    @staticmethod
+    def should_filter_thinking(ai_response: dict) -> bool:
+        """
+        Check if legacy filtering should be applied.
+        
+        Returns False if native thinking tokens are available, True otherwise.
+        """
+        # Check if response has native thinking separation
+        if isinstance(ai_response, dict):
+            # Check for Ollama-style native thinking
+            if 'thinking' in ai_response or ('message' in ai_response and
+                isinstance(ai_response['message'], dict) and 'thinking' in ai_response['message']):
+                logger.debug("Native thinking tokens detected, skipping legacy filtering")
+                return False
+        return True
 
 class MouseSelectionHandler:
     """Handles mouse selection logic"""
@@ -757,20 +781,26 @@ class FloatingToolbarModule(QMainWindow):
         ]
     
     def _call_llm(self, messages: List[Dict[str, str]], temperature: Optional[float] = None) -> str:
-        """Call the LLM with prepared messages and optional temperature"""
+        """Call the LLM with prepared messages and optional temperature with native thinking support"""
         if self.client_type == "ollama":
             response = self.client.chat_completion_sync(
                 model=self.settings.get('model', 'mistral'),
                 messages=messages,
-                temperature=temperature
+                temperature=temperature,
+                think=True  # Enable native thinking tokens for reasoning models
             )
+            # Store response for thinking token detection
+            self._last_ai_response = response
             return response['message']['content']
         else:  # LM Studio
             response = self.client.chat_completion_sync(
                 messages=messages,
                 model=self.settings.get('model', 'mistral'),
-                temperature=temperature
+                temperature=temperature,
+                think=True  # Enable native thinking tokens for reasoning models
             )
+            # Store response for thinking token detection
+            self._last_ai_response = response
             return response['choices'][0]['message']['content']
     
     def _handle_processed_text(self, text: str) -> None:
@@ -785,15 +815,21 @@ class FloatingToolbarModule(QMainWindow):
             prompt_info = self.prompt_manager.get_prompt_info(current_prompt)
             is_quick_review = prompt_info.get('quick_review', False) if isinstance(prompt_info, dict) else False
             
-            # Filter text
-            filtered_text = self.text_filter.filter_reasoning_chain(text)
+            # Handle thinking tokens - use native separation if available, fallback to legacy filtering
+            if hasattr(self, '_last_ai_response') and not self.text_filter.should_filter_thinking(self._last_ai_response):
+                # Native thinking tokens are available, use content directly
+                final_text = text
+                logger.debug("Using native thinking token separation, no legacy filtering needed")
+            else:
+                # Fallback to legacy filtering for older models/APIs
+                final_text = self.text_filter.filter_reasoning_chain(text)
             
             if is_quick_review:
-                self.text_window.setText(filtered_text)
+                self.text_window.setText(final_text)
                 self.text_window.updatePosition()
                 self.text_window.show()
             else:
-                self.clipboard.replace_selected_text(filtered_text)
+                self.clipboard.replace_selected_text(final_text)
                 
         except Exception as e:
             logger.error(f"Error handling processed text: {e}")

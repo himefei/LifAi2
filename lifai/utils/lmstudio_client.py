@@ -200,7 +200,8 @@ class LMStudioClient:
         ttl: Optional[int] = None,
         response_format: Optional[Dict] = None,
         max_tokens: Optional[int] = None,
-        enable_performance_tracking: Optional[bool] = None
+        enable_performance_tracking: Optional[bool] = None,
+        think: Optional[bool] = None
     ) -> Dict:
         """
         Enhanced chat completion optimized for LM Studio native API v0 benefits.
@@ -215,6 +216,7 @@ class LMStudioClient:
             response_format: Structured output schema for JSON responses
             max_tokens: Maximum tokens to generate
             enable_performance_tracking: Enable detailed performance metrics
+            think: Enable thinking mode for reasoning models (future support)
         
         Returns:
             Enhanced chat completion response with native API benefits
@@ -247,6 +249,11 @@ class LMStudioClient:
             if self.use_native_api and ttl is not None:
                 data["ttl"] = ttl
                 logger.debug(f"Using TTL: {ttl}s for automatic model management")
+                
+            # Add thinking support when available (future LM Studio feature)
+            if think is not None:
+                data["think"] = think
+                logger.debug(f"Thinking mode requested: {think}")
                 
             # Handle response format (structured outputs)
             if response_format:
@@ -367,7 +374,8 @@ class LMStudioClient:
         model: Optional[str] = None,
         temperature: Optional[float] = None,  # Changed from default 0.7 to None
         stream: bool = False,
-        format: Optional[Union[str, Dict]] = None
+        format: Optional[Union[str, Dict]] = None,
+        think: Optional[bool] = None
     ) -> Dict:
         """
         Synchronous wrapper for chat_completion.
@@ -380,7 +388,14 @@ class LMStudioClient:
             asyncio.set_event_loop(new_loop)
             try:
                 logger.debug(f"Running chat_completion in sync mode with messages: {messages[:1]}...")
-                result = new_loop.run_until_complete(self.chat_completion(messages, model, temperature, stream, format))
+                result = new_loop.run_until_complete(self.chat_completion(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    stream=stream,
+                    format=format,
+                    think=think
+                ))
                 logger.debug("Successfully completed chat_completion_sync")
                 return result
             finally:

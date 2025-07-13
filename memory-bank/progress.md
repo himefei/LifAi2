@@ -66,3 +66,6 @@ Both modules now follow SOLID principles, have better testability, improved main
 
 
 [2025-06-27 14:31:00] - Updated README.md to reflect current project state: Comprehensively revised README to showcase latest features including custom temperature controls, advanced AI client integrations, async architecture modernization, and enhanced prompt management. Updated sections include improved feature descriptions, current requirements, detailed usage guide with temperature recommendations, modern architecture overview, and acknowledgment of recent enhancements.
+
+
+[2025-01-07 15:14:00] - Modernized reasoning token handling: Deprecated legacy <thinking> regex filtering in favor of native reasoning token support from Ollama and LM Studio. Updated both AI clients to support the 'think' parameter for reasoning models. Enhanced floating toolbar to detect and use native thinking separation when available, falling back to legacy filtering only when needed. This improves performance and accuracy by leveraging native API features instead of post-processing regex.

@@ -137,7 +137,8 @@ class OllamaClient:
         stream: bool = False,
         format: Optional[Union[str, Dict]] = None,
         options: Optional[Dict] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        think: Optional[bool] = None
     ) -> str:
         """Asynchronously generate a response from the model with enhanced features."""
         try:
@@ -147,6 +148,9 @@ class OllamaClient:
                 "prompt": prompt,
                 "stream": stream
             }
+            # Add native thinking support for reasoning models
+            if think is not None:
+                data["think"] = think
             # Add optional parameters if provided
             if format:
                 data["format"] = format
@@ -183,7 +187,8 @@ class OllamaClient:
         stream: bool = False,
         format: Optional[Union[str, Dict]] = None,
         options: Optional[Dict] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        think: Optional[bool] = None
     ) -> Dict:
         """Asynchronously generate a chat completion using the new chat API."""
         try:
@@ -193,6 +198,9 @@ class OllamaClient:
                 "messages": messages,
                 "stream": stream
             }
+            # Add native thinking support for reasoning models
+            if think is not None:
+                data["think"] = think
             if format:
                 data["format"] = format
             # Initialize options dictionary if not provided
@@ -228,6 +236,13 @@ class OllamaClient:
                         ollama_message_obj['content'] = ollama_message_obj.get('content', '')
                         ollama_message_obj['role'] = ollama_message_obj.get('role', 'assistant')
 
+                    # Handle native thinking tokens if present
+                    thinking_content = ollama_message_obj.get('thinking', '')
+                    if thinking_content:
+                        logger.debug(f"Native thinking tokens extracted: {len(thinking_content)} chars")
+                        # Store thinking separately for optional access
+                        ollama_message_obj['thinking'] = thinking_content
+
                     # Adapt to a structure that's both OpenAI-like and provides direct message access
                     adapted_response = {
                         "choices": [{
@@ -247,6 +262,10 @@ class OllamaClient:
                             "total_tokens": raw_ollama_response.get("prompt_eval_count", 0) + raw_ollama_response.get("eval_count", 0)
                         }
                     }
+                    
+                    # Add thinking to top-level response if present
+                    if thinking_content:
+                        adapted_response['thinking'] = thinking_content
                     
                     # Log token usage and speed
                     prompt_tokens = raw_ollama_response.get("prompt_eval_count", 0)
@@ -282,25 +301,33 @@ class OllamaClient:
 
     async def _handle_stream_response(self, response: httpx.Response) -> str:
         """
-        Asynchronously handle streaming responses from the API.
+        Asynchronously handle streaming responses from the API with native thinking support.
         """
         try:
             full_response = ""
+            full_thinking = ""
             async for line in response.aiter_lines():
                 if line:
                     try:
                         json_response = json.loads(line)
                         logger.debug(f"Ollama stream raw line content: {json_response}")
                         content_piece = ""
-                        # Check for /api/chat structure
-                        if "message" in json_response and isinstance(json_response.get("message"), dict) and "content" in json_response["message"]:
-                            content_piece = json_response["message"]["content"]
+                        thinking_piece = ""
+                        
+                        # Check for /api/chat structure with native thinking support
+                        if "message" in json_response and isinstance(json_response.get("message"), dict):
+                            message = json_response["message"]
+                            content_piece = message.get("content", "")
+                            thinking_piece = message.get("thinking", "")
                         # Check for /api/generate structure
                         elif "response" in json_response:
                             content_piece = json_response["response"]
+                            thinking_piece = json_response.get("thinking", "")
                         
                         if content_piece:
                             full_response += content_piece
+                        if thinking_piece:
+                            full_thinking += thinking_piece
                         
                         # If the stream is supposed to yield structured chunks (OpenAI-like)
                         # this part would need to construct and yield those instead of concatenating.
@@ -312,6 +339,11 @@ class OllamaClient:
                     except Exception as e:
                         logger.error(f"Error processing Ollama stream line: {e}, line: {line[:100]}...")
                         continue
+            
+            # Log thinking extraction if present
+            if full_thinking:
+                logger.debug(f"Native thinking tokens extracted from stream: {len(full_thinking)} chars")
+            
             return full_response
         except Exception as e:
             raise Exception(f"Error handling stream response: {str(e)}")
@@ -468,7 +500,8 @@ class OllamaClient:
         stream: bool = False,
         format: Optional[Union[str, Dict]] = None,
         options: Optional[Dict] = None,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        think: Optional[bool] = None
     ) -> Dict:
         """
         Synchronous wrapper for chat_completion.
@@ -486,7 +519,8 @@ class OllamaClient:
                         stream=stream,
                         format=format,
                         options=options,
-                        temperature=temperature
+                        temperature=temperature,
+                        think=think
                     )
                 )
             finally:
