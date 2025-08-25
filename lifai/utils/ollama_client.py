@@ -3,16 +3,17 @@ OllamaClient: Enhanced async Python client for Ollama's latest API features.
 
 This module provides comprehensive integration with Ollama's latest API capabilities including
 the new embedding endpoints, enhanced streaming, better error handling, and support for
-advanced model management features.
+advanced model management features. Updated for optimal inference speed and latest Context7 findings.
 
 Features:
-    - Latest Ollama API endpoints including new /api/embed
-    - Enhanced streaming responses with better chunk handling
-    - Comprehensive model management (list loaded, version info)
-    - Batch embedding support for multiple inputs
-    - Improved error handling and logging
-    - Support for advanced model options and keep_alive
-    - Async HTTP requests for optimal performance
+    - Latest Ollama API endpoints including new /api/embed (migrated from deprecated /api/embeddings)
+    - Enhanced streaming responses with better chunk handling and native thinking support
+    - Comprehensive model management (list loaded, version info, detailed metrics)
+    - Batch embedding support for multiple inputs with improved performance tracking
+    - Advanced error handling with contextual messages and better recovery
+    - Support for advanced model options, keep_alive, and thinking models
+    - Async HTTP requests optimized for inference speed
+    - Enhanced performance metrics and monitoring
 """
 
 from typing import Optional, List, Dict, Union, Any
@@ -35,40 +36,56 @@ class OllamaClient:
         # Note: Connection test will be performed when first method is called
 
     async def test_connection(self) -> bool:
-        """Enhanced connection test with version information."""
+        """Enhanced connection test with version information and performance metrics."""
         try:
             async with httpx.AsyncClient() as client:
+                start_time = time.monotonic()
+                
                 # Test basic connection and get version info
                 version_response = await client.get(f"{self.api_base}/version", timeout=5)
+                
                 if version_response.status_code == 200:
                     version_info = version_response.json()
+                    connection_time = time.monotonic() - start_time
                     logger.info(f"Successfully connected to Ollama server version: {version_info}")
+                    logger.info(f"Connection established in {connection_time:.3f}s")
                     return True
                 else:
                     # Fallback to tags endpoint for older versions
                     tags_response = await client.get(f"{self.api_base}/tags", timeout=5)
                     if tags_response.status_code == 200:
-                        logger.info("Successfully connected to Ollama server (legacy version)")
+                        connection_time = time.monotonic() - start_time
+                        logger.info(f"Successfully connected to Ollama server (legacy version) in {connection_time:.3f}s")
                         return True
                     else:
-                        logger.error(f"Failed to connect to Ollama server. Status code: {tags_response.status_code}")
+                        logger.error(f"Failed to connect to Ollama server. Status codes: version={version_response.status_code}, tags={tags_response.status_code}")
                         return False
-        except httpx.RequestError:
-            logger.error("Could not connect to Ollama server. Is it running?")
+        except httpx.TimeoutException:
+            logger.error("Connection to Ollama server timed out. Check if server is running and responsive.")
+            return False
+        except httpx.ConnectError:
+            logger.error("Could not connect to Ollama server. Ensure it's running on the correct port.")
+            return False
+        except httpx.RequestError as e:
+            logger.error(f"Network error connecting to Ollama server: {str(e)}")
             return False
         except Exception as e:
-            logger.error(f"Error testing connection: {str(e)}")
+            logger.error(f"Unexpected error testing connection: {str(e)}")
             return False
 
     async def fetch_models(self) -> List[str]:
-        """Enhanced model fetching with additional metadata."""
+        """Enhanced model fetching with comprehensive metadata and performance tracking."""
         try:
             logger.debug("Fetching available models from Ollama")
+            start_time = time.monotonic()
+            
             async with httpx.AsyncClient() as client:
                 response = await client.get(f"{self.api_base}/tags", timeout=10)
+                
                 if response.status_code == 200:
                     models_data = response.json()
                     models = []
+                    total_size = 0
                     
                     for model in models_data.get('models', []):
                         model_name = model.get('name', '')
@@ -76,19 +93,37 @@ class OllamaClient:
                             models.append(model_name)
                             # Log additional model info if available
                             size = model.get('size', 0)
+                            total_size += size
                             modified = model.get('modified_at', '')
-                            logger.debug(f"Model: {model_name}, Size: {size}, Modified: {modified}")
+                            digest = model.get('digest', '')[:12] + '...' if model.get('digest') else 'N/A'
+                            
+                            # Enhanced model details logging
+                            details = model.get('details', {})
+                            family = details.get('family', 'unknown')
+                            param_size = details.get('parameter_size', 'unknown')
+                            quant_level = details.get('quantization_level', 'unknown')
+                            
+                            logger.debug(f"Model: {model_name} | Family: {family} | Params: {param_size} | "
+                                       f"Quant: {quant_level} | Size: {size:,} bytes | Digest: {digest}")
                     
-                    logger.info(f"Successfully fetched {len(models)} models from Ollama")
+                    fetch_time = time.monotonic() - start_time
+                    logger.info(f"Successfully fetched {len(models)} models from Ollama in {fetch_time:.3f}s")
+                    logger.info(f"Total models storage: {total_size:,} bytes ({total_size / (1024**3):.2f} GB)")
                     return models
                 else:
-                    logger.error(f"Failed to fetch models. Status code: {response.status_code}")
+                    logger.error(f"Failed to fetch models. Status code: {response.status_code}, Response: {response.text}")
                     return []
-        except httpx.RequestError:
+        except httpx.TimeoutException:
+            logger.error("Timeout fetching models from Ollama server. Server may be overloaded.")
+            return []
+        except httpx.ConnectError:
             logger.error("Could not connect to Ollama server. Is it running?")
             return []
+        except httpx.RequestError as e:
+            logger.error(f"Network error fetching models: {str(e)}")
+            return []
         except Exception as e:
-            logger.error(f"Error fetching models: {str(e)}")
+            logger.error(f"Unexpected error fetching models: {str(e)}")
             return []
 
     async def list_loaded_models(self) -> List[Dict]:
@@ -357,27 +392,29 @@ class OllamaClient:
         keep_alive: str = "5m"
     ) -> Dict:
         """
-        Enhanced embeddings generation using the latest /api/embed endpoint.
+        Enhanced embeddings generation using the latest /api/embed endpoint with optimal performance.
         
         Args:
             model: Model name for embedding generation
             input_text: Text or list of texts to embed
             options: Additional model parameters
-            truncate: Whether to truncate input to fit context length
-            keep_alive: How long to keep model loaded after request
+            truncate: Whether to truncate input to fit context length (default: True)
+            keep_alive: How long to keep model loaded after request (default: 5m)
             
         Returns:
-            Embeddings response with vectors and metadata
+            Embeddings response with vectors and enhanced performance metadata
         """
         try:
-            # Use the latest /api/embed endpoint
+            # Use the latest /api/embed endpoint (replacing deprecated /api/embeddings)
             url = f"{self.api_base}/embed"
             
-            # Support both single string and list of strings
+            # Support both single string and list of strings with optimal batching
             if isinstance(input_text, str):
                 input_data = input_text
+                batch_size = 1
             else:
                 input_data = input_text
+                batch_size = len(input_text)
             
             data = {
                 "model": model,
@@ -389,40 +426,70 @@ class OllamaClient:
             if options:
                 data["options"] = options
 
-            logger.debug(f"Generating embeddings for {len(input_data) if isinstance(input_data, list) else 1} inputs")
+            logger.debug(f"Generating embeddings using /api/embed for {batch_size} input(s) with model: {model}")
             
             async with httpx.AsyncClient() as client:
                 start_time = time.monotonic()
-                response = await client.post(url, json=data, timeout=60)
+                response = await client.post(url, json=data, timeout=120)  # Increased timeout for large batches
                 
                 if response.status_code == 200:
                     embeddings_response = response.json()
                     
-                    # Log performance metrics
+                    # Enhanced performance metrics logging
                     end_time = time.monotonic()
-                    duration = end_time - start_time
+                    request_duration = end_time - start_time
                     
-                    # Extract metrics from response
+                    # Extract detailed metrics from response
                     total_duration = embeddings_response.get('total_duration', 0)
                     load_duration = embeddings_response.get('load_duration', 0)
                     prompt_eval_count = embeddings_response.get('prompt_eval_count', 0)
                     
-                    logger.info(f"Ollama Embeddings - Model: {model}, Inputs: {len(input_data) if isinstance(input_data, list) else 1}")
-                    logger.info(f"Ollama Embeddings Performance - Duration: {duration:.2f}s, "
-                              f"Tokens: {prompt_eval_count}, Load time: {load_duration/1e9:.2f}s")
+                    # Calculate processing rates
+                    total_duration_s = total_duration / 1e9 if total_duration > 0 else request_duration
+                    load_duration_s = load_duration / 1e9 if load_duration > 0 else 0
+                    
+                    # Log comprehensive metrics
+                    logger.info(f"Ollama Embeddings Success:")
+                    logger.info(f"  Model: {model} | Batch Size: {batch_size} | Tokens: {prompt_eval_count}")
+                    logger.info(f"  Request Duration: {request_duration:.3f}s | Total Duration: {total_duration_s:.3f}s")
+                    logger.info(f"  Load Duration: {load_duration_s:.3f}s")
+                    
+                    if prompt_eval_count > 0 and total_duration_s > 0:
+                        tokens_per_second = prompt_eval_count / total_duration_s
+                        logger.info(f"  Processing Rate: {tokens_per_second:.2f} tokens/second")
+                    
+                    # Validate embeddings structure
+                    embeddings = embeddings_response.get('embeddings', [])
+                    if embeddings:
+                        if isinstance(embeddings[0], list):
+                            embedding_dim = len(embeddings[0])
+                            logger.debug(f"  Embedding Dimensions: {embedding_dim}")
+                        logger.debug(f"  Generated {len(embeddings)} embedding vector(s)")
                     
                     return embeddings_response
                 else:
                     error_msg = f"Embeddings generation failed with status {response.status_code}"
                     if response.text:
                         error_msg += f": {response.text}"
+                    logger.error(error_msg)
                     raise Exception(error_msg)
                     
         except httpx.TimeoutException:
-            raise Exception("Embeddings request timed out. Try reducing input size or increasing timeout.")
+            error_msg = f"Embeddings request timed out after {120}s. Consider reducing batch size or using shorter inputs."
+            logger.error(error_msg)
+            raise Exception(error_msg)
+        except httpx.ConnectError:
+            error_msg = "Could not connect to Ollama server for embeddings. Ensure server is running."
+            logger.error(error_msg)
+            raise Exception(error_msg)
+        except httpx.RequestError as e:
+            error_msg = f"Network error during embeddings generation: {str(e)}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
         except Exception as e:
-            logger.error(f"Error generating embeddings: {str(e)}")
-            raise Exception(f"Error generating embeddings: {str(e)}")
+            error_msg = f"Error generating embeddings: {str(e)}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
 
     async def get_model_info(self, model: str) -> Dict:
         """

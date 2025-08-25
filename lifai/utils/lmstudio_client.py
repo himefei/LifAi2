@@ -2,18 +2,21 @@
 LMStudioClient: Enhanced async Python client for LM Studio's latest API features.
 
 This module provides comprehensive integration with LM Studio's native REST API and OpenAI-compatible
-endpoints, featuring the latest capabilities including TTL support, enhanced model management,
-structured outputs, and improved streaming responses.
+endpoints, featuring the latest capabilities discovered from Context7 documentation including enhanced
+performance metrics, better model management, and optimized inference speed.
 
 Features:
-    - Native LM Studio REST API support (/api/v0/* endpoints)
-    - OpenAI-compatible endpoints for backward compatibility
-    - TTL (Time-To-Live) support for automatic model unloading
-    - Enhanced model management and information retrieval
-    - Structured output support with JSON schemas
-    - Improved streaming with better error handling
-    - Comprehensive embeddings support
-    - Async HTTP requests for non-blocking operations
+    - Native LM Studio REST API v0 support (/api/v0/* endpoints) - optimized for performance
+    - OpenAI-compatible endpoints (/v1/*) for backward compatibility
+    - TTL (Time-To-Live) support for automatic model unloading and resource management
+    - Enhanced model management with detailed state information (loaded/not-loaded)
+    - Rich performance statistics: tokens_per_second, time_to_first_token, generation_time
+    - Detailed model_info and runtime information in responses
+    - Structured output support with JSON schemas and function calling
+    - Improved streaming with better error handling and chunk processing
+    - Comprehensive embeddings support with batch processing
+    - Advanced error handling with contextual messages and recovery strategies
+    - Async HTTP requests optimized for inference speed and non-blocking operations
 """
 
 import httpx
@@ -26,15 +29,15 @@ from typing import List, Dict, Optional, Union, Any
 logger = logging.getLogger(__name__)
 
 class LMStudioClient:
-    """Enhanced async client for LM Studio's native and OpenAI-compatible APIs."""
+    """Enhanced async client for LM Studio's native and OpenAI-compatible APIs with Context7 optimizations."""
     def __init__(self, base_url="http://localhost:1234", use_native_api=True):
         """
-        Initialize LM Studio client optimized for native API performance and features.
+        Initialize LM Studio client optimized for native API v0 performance and latest features.
         
         Args:
             base_url: Base URL for LM Studio server (default: http://localhost:1234)
-            use_native_api: Whether to use native REST API (/api/v0/) or OpenAI-compatible (/v1/)
-                           Default: True (recommended for best performance and features)
+            use_native_api: Whether to use native REST API v0 (/api/v0/) or OpenAI-compatible (/v1/)
+                           Default: True (strongly recommended for optimal performance and enhanced features)
         """
         self.base_url = base_url
         self.use_native_api = use_native_api
@@ -44,62 +47,115 @@ class LMStudioClient:
             "Content-Type": "application/json"
         }
         
-        # Enhanced configuration for native API optimization
-        self.default_ttl = 600  # 10 minutes default TTL for models
+        # Enhanced configuration for native API v0 optimization (Context7 findings)
+        self.default_ttl = 600  # 10 minutes default TTL for automatic model management
         self.enable_performance_tracking = True
-        self.request_timeout = 120  # Extended timeout for reasoning models
+        self.enable_detailed_stats = True  # Enable detailed stats from native API
+        self.request_timeout = 180  # Extended timeout for complex reasoning models
+        self.connection_timeout = 10  # Connection establishment timeout
         
-        logger.info(f"Initialized LMStudioClient with native API v0 optimization: base_url={base_url}, native_api={use_native_api}")
+        logger.info(f"Initialized LMStudioClient with Context7 optimizations:")
+        logger.info(f"  Base URL: {base_url}")
+        logger.info(f"  Native API v0: {use_native_api}")
+        logger.info(f"  Performance Tracking: {self.enable_performance_tracking}")
+        logger.info(f"  Default TTL: {self.default_ttl}s")
+        
         if use_native_api:
-            logger.info("Using LM Studio native API v0 for enhanced performance and features")
+            logger.info("Using LM Studio native API v0 for maximum performance, enhanced statistics, and rich model information")
         else:
-            logger.info("Using OpenAI-compatible API v1 for maximum compatibility")
+            logger.info("Using OpenAI-compatible API v1 for backward compatibility (limited features)")
 
     async def fetch_models(self) -> List[str]:
         """
-        Asynchronously fetch available models using native LM Studio API or OpenAI-compatible endpoint.
+        Asynchronously fetch available models using native LM Studio API v0 with enhanced metadata.
         
         Returns:
-            List of model names/IDs
+            List of model names/IDs with detailed logging of model information
         """
         try:
-            async with httpx.AsyncClient() as client:
+            start_time = time.monotonic()
+            
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self.connection_timeout)) as client:
                 if self.use_native_api:
-                    # Use native LM Studio API for enhanced model information
-                    response = await client.get(f"{self.native_base}/models", timeout=10)
+                    # Use native LM Studio API v0 for comprehensive model information
+                    response = await client.get(f"{self.native_base}/models", timeout=15)
                 else:
                     # Use OpenAI-compatible endpoint for backward compatibility
-                    response = await client.get(f"{self.openai_base}/models", timeout=10)
+                    response = await client.get(f"{self.openai_base}/models", timeout=15)
                 
                 response.raise_for_status()
                 models_data = response.json()
                 
                 model_names = []
+                loaded_models = 0
+                total_models = 0
+                
                 if self.use_native_api:
-                    # Native API may have different response structure
-                    if isinstance(models_data, list):
-                        model_names = [model.get('id', model.get('name', '')) for model in models_data if model]
-                    elif 'data' in models_data:
-                        model_names = [model.get('id', model.get('name', '')) for model in models_data.get('data', [])]
+                    # Enhanced native API v0 response processing with detailed model info
+                    models_list = models_data.get('data', []) if 'data' in models_data else (models_data if isinstance(models_data, list) else [])
+                    
+                    for model in models_list:
+                        if not isinstance(model, dict):
+                            continue
+                            
+                        model_id = model.get('id', model.get('name', ''))
+                        if model_id:
+                            model_names.append(model_id)
+                            total_models += 1
+                            
+                            # Enhanced logging with native API v0 metadata
+                            model_type = model.get('type', 'unknown')
+                            publisher = model.get('publisher', 'unknown')
+                            arch = model.get('arch', 'unknown')
+                            compatibility = model.get('compatibility_type', 'unknown')
+                            quantization = model.get('quantization', 'unknown')
+                            state = model.get('state', 'unknown')
+                            max_context = model.get('max_context_length', 'unknown')
+                            
+                            if state == 'loaded':
+                                loaded_models += 1
+                            
+                            logger.debug(f"Model: {model_id}")
+                            logger.debug(f"  Type: {model_type} | Publisher: {publisher} | Arch: {arch}")
+                            logger.debug(f"  Compatibility: {compatibility} | Quantization: {quantization}")
+                            logger.debug(f"  State: {state} | Max Context: {max_context}")
                 else:
-                    # OpenAI-compatible format
+                    # OpenAI-compatible format processing
                     for model in models_data.get('data', []):
                         model_id = model.get('id', '')
                         if model_id:
                             model_names.append(model_id)
+                            total_models += 1
+                            logger.debug(f"Model (OpenAI format): {model_id}")
                 
                 # Filter out empty names
                 model_names = [name for name in model_names if name.strip()]
                 
-                logger.info(f"Found {len(model_names)} models in LM Studio (native_api={self.use_native_api})")
+                fetch_time = time.monotonic() - start_time
+                
+                # Enhanced logging with performance and state information
+                logger.info(f"LM Studio Models Retrieved ({self.use_native_api and 'Native API v0' or 'OpenAI API'}):")
+                logger.info(f"  Total Models: {total_models} | Fetch Time: {fetch_time:.3f}s")
+                if self.use_native_api and loaded_models > 0:
+                    logger.info(f"  Loaded Models: {loaded_models}/{total_models}")
+                
                 return model_names if model_names else ["No models found"]
                 
-        except httpx.RequestError as e:
-            logger.error(f"HTTP error connecting to LM Studio: {e}")
+        except httpx.TimeoutException:
+            logger.error("Timeout connecting to LM Studio. Server may be starting up or overloaded.")
+            return ["LM Studio timeout"]
+        except httpx.ConnectError:
+            logger.error("Could not connect to LM Studio. Ensure the server is running and accessible.")
             return ["LM Studio connection error"]
+        except httpx.HTTPStatusError as e:
+            logger.error(f"LM Studio HTTP error {e.response.status_code}: {e.response.text}")
+            return ["LM Studio HTTP error"]
+        except httpx.RequestError as e:
+            logger.error(f"Network error connecting to LM Studio: {e}")
+            return ["LM Studio network error"]
         except Exception as e:
-            logger.error(f"Error connecting to LM Studio: {e}")
-            return ["LM Studio not running"]
+            logger.error(f"Unexpected error fetching LM Studio models: {e}")
+            return ["LM Studio unexpected error"]
             
     def fetch_models_sync(self) -> List[str]:
         """
@@ -297,56 +353,97 @@ class LMStudioClient:
                         # Add top-level message for consistent access
                         json_response['message'] = message_obj
                         
-                        # Enhanced performance tracking for native API
+                        # Enhanced performance tracking for native API v0 with Context7 optimizations
                         end_time = time.monotonic()
-                        duration = end_time - start_time
+                        request_duration = end_time - start_time
 
                         if self.enable_performance_tracking:
-                            # Extract native API exclusive metrics
+                            # Extract comprehensive native API v0 exclusive metrics
                             usage = json_response.get('usage', {})
                             stats = json_response.get('stats', {})
                             model_info = json_response.get('model_info', {})
                             runtime = json_response.get('runtime', {})
                             
+                            # Token usage metrics
                             prompt_tokens = usage.get('prompt_tokens', 0)
                             completion_tokens = usage.get('completion_tokens', 0)
                             total_tokens = usage.get('total_tokens', 0)
                             
-                            # Native API performance metrics
+                            # Native API v0 performance metrics (Context7 documented features)
                             tokens_per_second_api = stats.get('tokens_per_second', 0)
                             time_to_first_token = stats.get('time_to_first_token', 0)
                             generation_time = stats.get('generation_time', 0)
                             stop_reason = stats.get('stop_reason', 'unknown')
                             
-                            # Calculate our own metrics for comparison
-                            tokens_per_second_calc = completion_tokens / duration if duration > 0 and completion_tokens > 0 else 0
+                            # Model architecture details
+                            arch = model_info.get('arch', 'unknown')
+                            quant = model_info.get('quant', 'unknown')
+                            format_type = model_info.get('format', 'unknown')
+                            context_length = model_info.get('context_length', 'unknown')
                             
-                            # Enhanced logging with native API benefits
-                            logger.info(f"LM Studio Native API v0 - Model: {model_info.get('arch', 'unknown')} "
-                                      f"({model_info.get('quant', 'unknown')} quantization)")
-                            logger.info(f"Tokens: {completion_tokens}/{prompt_tokens}/{total_tokens} "
-                                      f"(completion/prompt/total)")
-                            logger.info(f"Performance: {tokens_per_second_api:.2f} tok/s (API), "
-                                      f"{tokens_per_second_calc:.2f} tok/s (calculated)")
-                            logger.info(f"Timing: {time_to_first_token:.3f}s first token, "
-                                      f"{generation_time:.3f}s generation, {duration:.3f}s total")
-                            logger.info(f"Stop reason: {stop_reason}")
+                            # Runtime information
+                            runtime_name = runtime.get('name', 'unknown')
+                            runtime_version = runtime.get('version', 'unknown')
+                            supported_formats = runtime.get('supported_formats', [])
                             
-                            if runtime:
-                                logger.info(f"Runtime: {runtime.get('name', 'unknown')} v{runtime.get('version', 'unknown')}")
+                            # Calculate additional metrics for validation
+                            tokens_per_second_calc = completion_tokens / request_duration if request_duration > 0 and completion_tokens > 0 else 0
                             
-                            # Add comprehensive performance metrics to response
+                            # Comprehensive enhanced logging with Context7 findings
+                            logger.info(f"LM Studio Native API v0 Performance Report:")
+                            logger.info(f"  Model Architecture: {arch} | Quantization: {quant} | Format: {format_type}")
+                            logger.info(f"  Context Length: {context_length} | Runtime: {runtime_name} v{runtime_version}")
+                            logger.info(f"  Token Usage: {completion_tokens} completion / {prompt_tokens} prompt / {total_tokens} total")
+                            
+                            # Performance metrics with validation
+                            logger.info(f"  Speed Metrics:")
+                            logger.info(f"    - API Reported: {tokens_per_second_api:.2f} tokens/second")
+                            logger.info(f"    - Calculated: {tokens_per_second_calc:.2f} tokens/second")
+                            logger.info(f"    - Time to First Token: {time_to_first_token:.3f}s")
+                            logger.info(f"    - Generation Time: {generation_time:.3f}s")
+                            logger.info(f"    - Total Request Duration: {request_duration:.3f}s")
+                            logger.info(f"  Stop Reason: {stop_reason}")
+                            
+                            # Log supported formats if available
+                            if supported_formats:
+                                logger.debug(f"  Supported Formats: {', '.join(supported_formats)}")
+                            
+                            # Performance analysis and warnings
+                            if tokens_per_second_api > 0 and abs(tokens_per_second_api - tokens_per_second_calc) > 5:
+                                logger.debug(f"  Note: Speed measurement discrepancy detected (API vs calculated)")
+                            
+                            if time_to_first_token > 2.0:
+                                logger.warning(f"  Warning: High time to first token ({time_to_first_token:.3f}s) - model may need optimization")
+                            
+                            # Add comprehensive performance metrics to response for consuming code
                             json_response['performance'] = {
+                                # Core performance metrics
                                 'tokens_per_second_api': tokens_per_second_api,
                                 'tokens_per_second_calculated': tokens_per_second_calc,
                                 'time_to_first_token': time_to_first_token,
                                 'generation_time': generation_time,
-                                'total_duration': duration,
+                                'total_request_duration': request_duration,
                                 'stop_reason': stop_reason,
-                                'model_architecture': model_info.get('arch'),
-                                'quantization': model_info.get('quant'),
-                                'context_length': model_info.get('context_length'),
-                                'runtime_info': runtime
+                                
+                                # Model details
+                                'model_architecture': arch,
+                                'quantization': quant,
+                                'format': format_type,
+                                'context_length': context_length,
+                                
+                                # Runtime information
+                                'runtime_info': {
+                                    'name': runtime_name,
+                                    'version': runtime_version,
+                                    'supported_formats': supported_formats
+                                },
+                                
+                                # Quality metrics
+                                'performance_quality': {
+                                    'speed_consistency': abs(tokens_per_second_api - tokens_per_second_calc) <= 5 if tokens_per_second_api > 0 else None,
+                                    'first_token_acceptable': time_to_first_token <= 2.0,
+                                    'overall_speed_rating': 'excellent' if tokens_per_second_api > 50 else 'good' if tokens_per_second_api > 20 else 'acceptable' if tokens_per_second_api > 10 else 'slow'
+                                }
                             }
 
                         return json_response

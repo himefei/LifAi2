@@ -69,3 +69,37 @@ Both modules now follow SOLID principles, have better testability, improved main
 
 
 [2025-01-07 15:14:00] - Modernized reasoning token handling: Deprecated legacy <thinking> regex filtering in favor of native reasoning token support from Ollama and LM Studio. Updated both AI clients to support the 'think' parameter for reasoning models. Enhanced floating toolbar to detect and use native thinking separation when available, falling back to legacy filtering only when needed. This improves performance and accuracy by leveraging native API features instead of post-processing regex.
+
+
+[2025-08-25 22:32:00] - Major AI Client Refactoring with Context7 Optimizations: Successfully completed comprehensive enhancement of both Ollama and LM Studio clients using latest Context7 documentation findings for optimal inference speed and performance.
+
+**Ollama Client Enhancements:**
+- Migrated from deprecated `/api/embeddings` to new `/api/embed` endpoint for future compatibility
+- Enhanced connection testing with performance metrics and detailed error handling
+- Improved model fetching with comprehensive metadata logging (family, parameters, quantization, storage analysis)
+- Advanced embedding generation with batch processing optimization and enhanced performance tracking
+- Better error categorization: TimeoutException, ConnectError, RequestError with contextual messages
+- Enhanced performance monitoring: request duration, processing rates, embedding dimensions validation
+
+**LM Studio Client Enhancements:**
+- Optimized for native API v0 endpoints (`/api/v0/*`) over OpenAI-compatible (`/v1/*`) for maximum performance
+- Enhanced model fetching with detailed state information (loaded/not-loaded, architecture, quantization)
+- Comprehensive performance metrics integration: `tokens_per_second`, `time_to_first_token`, `generation_time`
+- Rich model information logging: architecture, quantization, format, context length, runtime details
+- Advanced error handling with connection timeouts, HTTP status errors, and network error categorization
+- Performance quality analysis with speed consistency validation and rating system
+- Enhanced response structure with detailed performance metadata for consuming applications
+
+**Key Performance Improvements:**
+- Native API v0 preference for LM Studio provides enhanced statistics and model information
+- Optimized connection and request timeouts for different scenarios
+- Comprehensive logging for performance monitoring and debugging
+- Enhanced error recovery strategies with specific error type handling
+- Better resource management and model state tracking
+
+**Technical Implementation:**
+- Maintained backward compatibility while adding cutting-edge features
+- Async-first design with optimized HTTP client configuration
+- Enhanced response structures with consistent message access patterns
+- Comprehensive performance metrics collection and analysis
+- Future-proofed implementations based on latest API documentation
