@@ -18,8 +18,8 @@ from lifai.utils.lmstudio_client import LMStudioClient
 # from lifai.modules.text_improver.improver import TextImproverWindow
 from lifai.modules.floating_toolbar.toolbar import FloatingToolbarModule
 from lifai.modules.prompt_editor.editor import PromptEditorWindow
+from lifai.modules.ai_chat.chat_ui import ChatInterface
 # from lifai.modules.knowledge_manager.manager import KnowledgeManagerWindow # RAG Removed
-# from lifai.modules.AI_chat.ai_chat import ChatWindow
 # from lifai.modules.agent_workspace.workspace import AgentWorkspaceWindow
 # from lifai.modules.advagent.advagent_window import AdvAgentWindow
 
@@ -233,6 +233,11 @@ class LifAi2Hub(QMainWindow):
         self.prompt_editor_toggle.toggled.connect(self.toggle_prompt_editor)
         modules_layout.addWidget(self.prompt_editor_toggle)
         
+        # AI Chat toggle
+        self.ai_chat_toggle = ModuleToggle("AI Chat")
+        self.ai_chat_toggle.toggled.connect(self.toggle_ai_chat)
+        modules_layout.addWidget(self.ai_chat_toggle)
+        
         # Knowledge Manager toggle # RAG Removed
         # self.knowledge_manager_toggle = ModuleToggle("Knowledge Manager") # RAG Removed
         # self.knowledge_manager_toggle.toggled.connect(self.toggle_knowledge_manager) # RAG Removed
@@ -335,6 +340,12 @@ class LifAi2Hub(QMainWindow):
             settings=self.settings
         )
         
+        # 初始化 AI Chat
+        self.modules['ai_chat'] = ChatInterface(
+            settings=self.settings,
+            ai_client=self.get_active_client()
+        )
+        
         # 初始化其他模块
         # self.modules['text_improver'] = TextImproverWindow(
         #     settings=self.settings,
@@ -360,6 +371,11 @@ class LifAi2Hub(QMainWindow):
             self.modules['prompt_editor'].add_update_callback(
                 self.modules['floating_toolbar'].update_prompts
             )
+            
+        if hasattr(self.modules['ai_chat'], 'update_prompts'):
+            self.modules['prompt_editor'].add_update_callback(
+                self.modules['ai_chat'].update_prompts
+            )
 
     def toggle_text_improver(self, enabled):
         pass
@@ -379,6 +395,12 @@ class LifAi2Hub(QMainWindow):
             self.modules['prompt_editor'].show()
         else:
             self.modules['prompt_editor'].hide()
+
+    def toggle_ai_chat(self, enabled):
+        if enabled:
+            self.modules['ai_chat'].show()
+        else:
+            self.modules['ai_chat'].hide()
 
     # def toggle_knowledge_manager(self, enabled): # RAG Removed
     #     if enabled: # RAG Removed
@@ -460,9 +482,12 @@ class LifAi2Hub(QMainWindow):
             active_client = self.get_active_client()
             
             # Update all modules with new client
-            for module in self.modules.values():
+            for module_name, module in self.modules.items():
                 if hasattr(module, 'update_client'):
                     module.update_client(active_client)
+                # Special handling for AI chat module
+                elif module_name == 'ai_chat' and hasattr(module, 'ai_client'):
+                    module.ai_client = active_client
             
             # Refresh models list
             self.refresh_models()

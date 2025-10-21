@@ -8,6 +8,7 @@
 
 ## 🚀 Latest Features & Improvements
 
+- **💬 AI Chat Interface**: Modern ChatGPT-style chat interface with session management, image support, and prompt integration
 - **🌡️ Custom Temperature Controls**: Fine-tune AI creativity per prompt (0.0-2.0) for precision control over response randomness
 - **⚡ Advanced AI Client Integration**: Native LM Studio API v0 support with TTL management, enhanced Ollama endpoints, and comprehensive performance monitoring
 - **🎯 Robust Prompt Management**: GUI-based editor with JSON storage, automatic backups, emoji labeling, and drag-n-drop reordering
@@ -42,6 +43,7 @@
 - **Cross-Platform Compatibility**: Windows and macOS support with native OS integration
 
 ### 🎨 **Enhanced User Experience**
+- **AI Chat Interface**: Modern ChatGPT-style interface with multi-session support and image capabilities
 - **Floating Toolbar**: Always-accessible text processing with customizable prompt selection
 - **Interactive Help System**: Dynamic prompt flow diagrams with backend-specific guidance
 - **Console-Free Launch**: Clean desktop experience with `run.pyw` double-click execution
@@ -93,8 +95,19 @@
      - `2.0` = Maximum creativity for artistic tasks
    - Add emoji labels and organize with drag-and-drop
 
-3. **Use the floating toolbar:**
-   - Click **"Toggle Toolbar"** in the app hub
+3. **Choose your interface:**
+   - **AI Chat**: Modern ChatGPT-style interface for conversations
+   - **Floating Toolbar**: Quick text processing with prompt selection
+   - **Prompt Editor**: Create and manage your AI prompts
+
+4. **Start with AI Chat:**
+   - Click **"AI Chat"** in the app hub to open the chat interface
+   - Select a system prompt (optional) to guide AI behavior
+   - Type your message and press Ctrl+Enter or click Send
+   - Attach images for vision-capable models
+
+5. **Use the floating toolbar:**
+   - Click **"Floating Toolbar"** in the app hub
    - Select your desired prompt from the dropdown
    - Click **"Process Text"** and select any text
    - AI processes with your custom temperature setting ✨
