@@ -18,21 +18,45 @@ Variables:
 
 import os
 import json
+from typing import Dict, List, Tuple, Optional
 
 PROMPTS_JSON = os.path.join(os.path.dirname(__file__), "../modules/prompt_editor/prompts.json")
 
-def load_all_prompts():
-    """Load all prompts from the JSON file as a list of dicts."""
+# Cache for prompts data to avoid repeated file I/O
+_prompts_cache: Optional[Dict] = None
+_cache_mtime: Optional[float] = None
+
+def _load_prompts_data() -> Dict:
+    """Load prompts data from JSON file with caching."""
+    global _prompts_cache, _cache_mtime
+    
     if not os.path.exists(PROMPTS_JSON):
-        return []
-    with open(PROMPTS_JSON, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        return {"prompts": [], "order": []}
+    
+    # Check if file has been modified since last cache
+    current_mtime = os.path.getmtime(PROMPTS_JSON)
+    
+    if _prompts_cache is None or _cache_mtime is None or current_mtime != _cache_mtime:
+        with open(PROMPTS_JSON, "r", encoding="utf-8") as f:
+            _prompts_cache = json.load(f)
+        _cache_mtime = current_mtime
+    
+    return _prompts_cache
+
+def load_all_prompts() -> List[Dict]:
+    """Load all prompts from the JSON file as a list of dicts (cached)."""
+    data = _load_prompts_data()
     return data.get("prompts", [])
 
-def get_prompt_dict_by_name():
-    """Return a dict mapping prompt names to prompt data."""
+def get_prompt_dict_by_name() -> Dict[str, Dict]:
+    """Return a dict mapping prompt names to prompt data (cached)."""
     prompts = load_all_prompts()
     return {p["name"]: p for p in prompts}
+
+def get_prompt_order() -> List[str]:
+    """Return the current prompt order (list of UUIDs) (cached)."""
+    data = _load_prompts_data()
+    return data.get("order", [])
 
 # For backward compatibility, provide llm_prompts as a dict keyed by name
 llm_prompts = get_prompt_dict_by_name()
@@ -41,18 +65,16 @@ llm_prompts = get_prompt_dict_by_name()
 system_prompts = []  # Add any system-level prompts if required
 
 # Prompt order (list of UUIDs)
-def get_prompt_order():
-    if not os.path.exists(PROMPTS_JSON):
-        return []
-    with open(PROMPTS_JSON, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data.get("order", [])
-
 prompt_order = get_prompt_order()
 
-def reload_prompts():
+def reload_prompts() -> Tuple[Dict[str, Dict], List[str]]:
     """Reload prompts from the JSON file and update global variables."""
-    global llm_prompts, prompt_order
+    global llm_prompts, prompt_order, _prompts_cache, _cache_mtime
+    
+    # Invalidate cache to force reload
+    _prompts_cache = None
+    _cache_mtime = None
+    
     llm_prompts = get_prompt_dict_by_name()
     prompt_order = get_prompt_order()
     return llm_prompts, prompt_order

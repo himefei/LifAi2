@@ -41,7 +41,6 @@ class PromptData:
     template: str
     quick_review: bool = False
     emoji: str = "✨"
-    temperature: float = 0.7
 
 class PromptStorageManager:
     """Handles all prompt storage operations including backup management"""
@@ -203,7 +202,6 @@ class PromptEditorWindow(QMainWindow):
         self.name_entry: Optional[QLineEdit] = None
         self.template_text: Optional[QPlainTextEdit] = None
         self.quick_review_checkbox: Optional[QCheckBox] = None
-        self.temperature_spinbox: Optional[QDoubleSpinBox] = None
         self.emoji_btn: Optional[QToolButton] = None
         self.status_label: Optional[QLabel] = None
         self.apply_btn: Optional[QPushButton] = None
@@ -289,15 +287,6 @@ class PromptEditorWindow(QMainWindow):
         
         # Temperature control
         temp_layout = QHBoxLayout()
-        temp_layout.addWidget(QLabel("Temperature:"))
-        self.temperature_spinbox = QDoubleSpinBox()
-        self.temperature_spinbox.setRange(0.0, 2.0)
-        self.temperature_spinbox.setSingleStep(0.1)
-        self.temperature_spinbox.setDecimals(1)
-        self.temperature_spinbox.setValue(0.7)
-        self.temperature_spinbox.setToolTip("Controls randomness: 0.0 = deterministic, 1.0 = balanced, 2.0 = very creative")
-        self.temperature_spinbox.setFixedWidth(80)
-        temp_layout.addWidget(self.temperature_spinbox)
         temp_layout.addStretch()
         
         controls_layout.addLayout(temp_layout)
@@ -409,7 +398,6 @@ If your template is empty, a default instruction like "Process the following tex
         self.name_entry.setText(prompt["name"])
         self.template_text.setPlainText(prompt.get("template", ""))
         self.quick_review_checkbox.setChecked(prompt.get("quick_review", False))
-        self.temperature_spinbox.setValue(prompt.get("temperature", 0.7))
     
     def _new_prompt(self) -> None:
         """Create a new prompt"""
@@ -430,8 +418,7 @@ If your template is empty, a default instruction like "Process the following tex
             "name": name,
             "template": "",
             "quick_review": False,
-            "emoji": "✨",
-            "temperature": 0.7
+            "emoji": "✨"
         }
         
         self.prompts_data["prompts"].append(prompt)
@@ -488,7 +475,6 @@ If your template is empty, a default instruction like "Process the following tex
         prompt["name"] = name
         prompt["template"] = template
         prompt["quick_review"] = self.quick_review_checkbox.isChecked()
-        prompt["temperature"] = self.temperature_spinbox.value()
         
         # Update emoji if present in name
         emoji = self.emoji_manager.extract_emoji_from_name(name)
