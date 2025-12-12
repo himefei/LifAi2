@@ -103,3 +103,54 @@ Both modules now follow SOLID principles, have better testability, improved main
 - Enhanced response structures with consistent message access patterns
 - Comprehensive performance metrics collection and analysis
 - Future-proofed implementations based on latest API documentation
+
+
+---
+
+## Session: 2025-12-12 - Prompt Ordering Bug Fix & AI Client Enhancements
+
+### Fixed Long-Standing Prompt Ordering Bug
+
+Successfully resolved a persistent issue where floating toolbar would display prompts in "default" order after app restart instead of user's saved order.
+
+**Root Cause Analysis:**
+- The `add_update_callback()` method in `editor.py` was passing incorrectly ordered prompt names
+- It was using the order of prompts as they appeared in the prompts dictionary (insertion order)
+- Should have been using the saved `order` array from prompts.json
+
+**Fix Applied:**
+- Modified `add_update_callback()` to create `ordered_prompt_names` from the saved order array
+- Now correctly filters and orders names based on stored order IDs
+- Passes both ordered names and order IDs to callbacks, matching `_notify_callbacks()` behavior
+
+**Files Modified:**
+- `lifai/modules/prompt_editor/editor.py` - Fixed callback initialization
+- `lifai/modules/floating_toolbar/toolbar.py` - Cleaned up debug statements
+
+
+### Comprehensive AI Client Enhancement with Context7 Documentation
+
+Applied latest API features and improvements to both Ollama and LM Studio clients based on current Context7 documentation research.
+
+**Ollama Client New Features (ollama_client.py):**
+- Custom exception hierarchy: `OllamaError`, `OllamaConnectionError`, `OllamaTimeoutError`, `OllamaModelNotFoundError`
+- `keep_alive` parameter support on `generate_response()` and `chat_completion()` for model memory management
+- `default_keep_alive` constructor parameter (default: "5m")
+- `preload_model(model)` method - Loads model into memory with empty prompt for faster first response
+- `unload_model(model)` method - Immediately unloads model from memory (keep_alive=0)
+- `_process_images(images)` helper - Converts file paths and bytes to base64 for vision models
+- `chat_with_vision(model, messages, images)` method - Multimodal chat with image support
+
+**LM Studio Client New Features (lmstudio_client.py):**
+- Custom exception hierarchy: `LMStudioError`, `LMStudioConnectionError`, `LMStudioTimeoutError`, `LMStudioModelNotFoundError`
+- `_process_images(images)` helper with MIME type detection (JPEG, PNG, GIF, WebP)
+- `chat_with_vision(model, messages, images)` method - Vision support with data URLs
+- `load_model(model, gpu_offload, context_length, ttl)` method - Programmatic model loading with GPU acceleration options
+- `unload_model(model)` method - Clean model unloading from memory
+- `get_server_status()` method - Server information retrieval
+- `generate_response_sync(prompt, model, temperature)` - Synchronous wrapper for non-async contexts
+
+**Validation Completed:**
+- Syntax validation passed for both files
+- Import tests successful - all new features accessible
+- Backward compatibility maintained with existing code

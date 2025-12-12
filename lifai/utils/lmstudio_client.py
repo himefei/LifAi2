@@ -17,6 +17,8 @@ Features:
     - Comprehensive embeddings support with batch processing
     - Advanced error handling with contextual messages and recovery strategies
     - Async HTTP requests optimized for inference speed and non-blocking operations
+    - Vision/multimodal model support for image analysis (Context7 Dec 2025)
+    - Model loading/unloading control for resource management
 """
 
 import httpx
@@ -24,9 +26,37 @@ import json
 import logging
 import asyncio
 import time
+import base64
 from typing import List, Dict, Optional, Union, Any
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+# Custom exception classes for better error handling
+class LMStudioError(Exception):
+    """Base exception for LM Studio client errors."""
+    pass
+
+
+class LMStudioConnectionError(LMStudioError):
+    """Raised when connection to LM Studio server fails."""
+    pass
+
+
+class LMStudioTimeoutError(LMStudioError):
+    """Raised when request times out."""
+    pass
+
+
+class LMStudioModelNotFoundError(LMStudioError):
+    """Raised when requested model is not available."""
+    pass
+
+
+class LMStudioResponseError(LMStudioError):
+    """Raised when response processing fails."""
+    pass
 
 class LMStudioClient:
     """Enhanced async client for LM Studio's native and OpenAI-compatible APIs with Context7 optimizations."""
@@ -707,3 +737,235 @@ class LMStudioClient:
         except Exception as e:
             logger.error(f"Error handling stream response: {e}")
             raise Exception(f"Error handling stream response: {str(e)}")
+
+    async def _process_images(self, images: List[str]) -> List[Dict]:
+        """
+        Process image inputs for vision models.
+        
+        Accepts file paths or base64-encoded strings and returns properly formatted image data.
+        
+        Args:
+            images: List of file paths, URLs, or base64 strings
+            
+        Returns:
+            List of image content dicts for message formatting
+        """
+        processed = []
+        
+        for img in images:
+            try:
+                if img.startswith('http://') or img.startswith('https://'):
+                    # URL - pass as-is
+                    processed.append({
+                        "type": "image_url",
+                        "image_url": {"url": img}
+                    })
+                elif img.startswith('data:image'):
+                    # Already a data URL
+                    processed.append({
+                        "type": "image_url", 
+                        "image_url": {"url": img}
+                    })
+                elif Path(img).exists():
+                    # File path - read and encode
+                    with open(img, 'rb') as f:
+                        image_data = base64.b64encode(f.read()).decode('utf-8')
+                        # Detect image type from extension
+                        ext = Path(img).suffix.lower()
+                        mime_type = {
+                            '.jpg': 'image/jpeg',
+                            '.jpeg': 'image/jpeg',
+                            '.png': 'image/png',
+                            '.gif': 'image/gif',
+                            '.webp': 'image/webp'
+                        }.get(ext, 'image/jpeg')
+                        
+                        processed.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{image_data}"}
+                        })
+                        logger.debug(f"Encoded image from file: {img}")
+                else:
+                    # Assume it's already base64 encoded data
+                    processed.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{img}"}
+                    })
+            except Exception as e:
+                logger.error(f"Error processing image: {e}")
+                
+        return processed
+
+    async def chat_with_vision(
+        self,
+        prompt: str,
+        images: List[str],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        response_format: Optional[Dict] = None
+    ) -> Dict:
+        """
+        Convenience method for vision model chat with images.
+        
+        Args:
+            prompt: Text prompt describing what to analyze in the image
+            images: List of image file paths, URLs, or base64-encoded data
+            model: Vision-capable model name
+            temperature: Sampling temperature
+            response_format: Optional JSON schema for structured output
+            
+        Returns:
+            Chat completion response
+        """
+        processed_images = await self._process_images(images)
+        
+        # Build multimodal message content
+        content = [{"type": "text", "text": prompt}]
+        content.extend(processed_images)
+        
+        messages = [{
+            "role": "user",
+            "content": content
+        }]
+        
+        return await self.chat_completion(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            response_format=response_format
+        )
+
+    async def load_model(self, model: str, ttl: Optional[int] = None) -> bool:
+        """
+        Load a specific model into memory.
+        
+        Args:
+            model: Model identifier to load
+            ttl: Time-to-live in seconds (None = use default, -1 = indefinite)
+            
+        Returns:
+            True if model was successfully loaded
+        """
+        try:
+            if not self.use_native_api:
+                logger.warning("Model loading is only available with native API v0")
+                return False
+                
+            logger.info(f"Loading model '{model}' with TTL={ttl}s")
+            
+            endpoint = f"{self.native_base}/models/load"
+            data = {"model": model}
+            
+            if ttl is not None:
+                data["ttl"] = ttl
+                
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    endpoint,
+                    headers=self.default_headers,
+                    json=data,
+                    timeout=300  # Long timeout for model loading
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"Model '{model}' successfully loaded")
+                    return True
+                else:
+                    logger.error(f"Failed to load model: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error loading model: {e}")
+            return False
+
+    async def unload_model(self, model: str) -> bool:
+        """
+        Unload a specific model from memory.
+        
+        Args:
+            model: Model identifier to unload
+            
+        Returns:
+            True if model was successfully unloaded
+        """
+        try:
+            if not self.use_native_api:
+                logger.warning("Model unloading is only available with native API v0")
+                return False
+                
+            logger.info(f"Unloading model '{model}'")
+            
+            endpoint = f"{self.native_base}/models/unload"
+            data = {"model": model}
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    endpoint,
+                    headers=self.default_headers,
+                    json=data,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"Model '{model}' successfully unloaded")
+                    return True
+                else:
+                    logger.warning(f"Unexpected response unloading model: {response.status_code}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error unloading model: {e}")
+            return False
+
+    async def get_server_status(self) -> Dict:
+        """
+        Get LM Studio server status and configuration.
+        
+        Returns:
+            Server status information including loaded models and resource usage
+        """
+        try:
+            if self.use_native_api:
+                endpoint = f"{self.native_base}/status"
+            else:
+                # Fallback to models endpoint for basic status
+                endpoint = f"{self.openai_base}/models"
+                
+            async with httpx.AsyncClient() as client:
+                response = await client.get(endpoint, timeout=10)
+                response.raise_for_status()
+                return response.json()
+                
+        except Exception as e:
+            logger.error(f"Error getting server status: {e}")
+            return {"error": str(e)}
+
+    def generate_response_sync(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        stream: bool = False,
+        format: Optional[Union[str, Dict]] = None
+    ) -> str:
+        """
+        Synchronous wrapper for generate_response.
+        """
+        try:
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(
+                    self.generate_response(
+                        prompt=prompt,
+                        model=model,
+                        temperature=temperature,
+                        stream=stream,
+                        format=format
+                    )
+                )
+            finally:
+                new_loop.close()
+        except Exception as e:
+            logger.error(f"Error in generate_response_sync: {e}")
+            raise

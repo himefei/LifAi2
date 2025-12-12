@@ -55,3 +55,26 @@
 - **Model Pulling**: Programmatic model download with progress tracking
 - **Advanced Options**: Enhanced keep_alive, truncation, and model-specific parameters
 - **Improved Error Handling**: Better timeout management and error reporting
+## Latest API Updates (2025-12-12)
+
+### Ollama Client Enhancements (Context7 Based)
+- **Exception Hierarchy**: Custom exceptions (`OllamaError`, `OllamaConnectionError`, `OllamaTimeoutError`, `OllamaModelNotFoundError`) for granular error handling
+- **Keep Alive Support**: `keep_alive` parameter on generate/chat methods to control model memory residence (e.g., "5m", "1h", "0" for immediate unload)
+- **Model Preloading**: `preload_model(model)` method sends empty prompt to warm up model for faster first response
+- **Model Unloading**: `unload_model(model)` method immediately releases model from memory
+- **Vision/Multimodal**: `chat_with_vision(model, messages, images)` for image+text conversations with models like LLaVA
+- **Image Processing**: `_process_images(images)` converts file paths, bytes, or base64 strings to proper format
+
+### LM Studio Client Enhancements (Context7 Based)
+- **Exception Hierarchy**: Custom exceptions for connection, timeout, and model errors
+- **Vision Support**: `chat_with_vision(model, messages, images)` with automatic MIME type detection
+- **Model Loading**: `load_model(model, gpu_offload, context_length, ttl)` for programmatic model management with GPU acceleration options
+- **Model Unloading**: `unload_model(model)` for clean resource release
+- **Server Status**: `get_server_status()` returns server information and health status
+- **Sync Wrapper**: `generate_response_sync()` for use in non-async contexts
+
+### Cross-Client Improvements
+- **Backward Compatibility**: All new features are additive; existing code continues to work
+- **Consistent Error Handling**: Unified exception patterns across both clients
+- **Resource Management**: Explicit control over model memory lifecycle
+- **Multimodal Ready**: Both clients support vision models when available

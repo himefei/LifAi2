@@ -14,9 +14,13 @@ Features:
     - Support for advanced model options, keep_alive, and thinking models
     - Async HTTP requests optimized for inference speed
     - Enhanced performance metrics and monitoring
+    - Structured output support with JSON schema validation (Context7 Dec 2025)
+    - Vision/multimodal model support for image analysis
+    - Model preloading with keep_alive parameter
+    - Tool/function calling preparation (future-ready)
 """
 
-from typing import Optional, List, Dict, Union, Any
+from typing import Optional, List, Dict, Union, Any, Callable
 import httpx
 import logging
 from lifai.utils.logger_utils import get_module_logger
@@ -24,15 +28,62 @@ import json
 import base64
 import asyncio
 import time
+from pathlib import Path
 
 logger = get_module_logger(__name__)
 
+
+# Custom exception classes for better error handling
+class OllamaError(Exception):
+    """Base exception for Ollama client errors."""
+    pass
+
+
+class OllamaConnectionError(OllamaError):
+    """Raised when connection to Ollama server fails."""
+    pass
+
+
+class OllamaTimeoutError(OllamaError):
+    """Raised when request times out."""
+    pass
+
+
+class OllamaModelNotFoundError(OllamaError):
+    """Raised when requested model is not available."""
+    pass
+
+
+class OllamaResponseError(OllamaError):
+    """Raised when response processing fails."""
+    pass
+
 class OllamaClient:
     """Enhanced async client for Ollama's latest API features."""
-    def __init__(self, base_url: str = "http://localhost:11434"):
+    
+    # Default configuration
+    DEFAULT_TIMEOUT = 120  # seconds
+    DEFAULT_KEEP_ALIVE = "5m"  # 5 minutes
+    DEFAULT_CONNECT_TIMEOUT = 10  # seconds
+    
+    def __init__(self, base_url: str = "http://localhost:11434", 
+                 default_keep_alive: str = "5m",
+                 default_timeout: int = 120):
+        """
+        Initialize OllamaClient with enhanced configuration.
+        
+        Args:
+            base_url: Base URL for Ollama server
+            default_keep_alive: Default model memory lifetime (e.g., "5m", "1h", "-1" for indefinite)
+            default_timeout: Default request timeout in seconds
+        """
         self.base_url = base_url
         self.api_base = f"{base_url}/api"
+        self.default_keep_alive = default_keep_alive
+        self.default_timeout = default_timeout
+        self._server_version: Optional[str] = None
         logger.info(f"Initializing enhanced OllamaClient with base URL: {base_url}")
+        logger.info(f"  Default keep_alive: {default_keep_alive}, timeout: {default_timeout}s")
         # Note: Connection test will be performed when first method is called
 
     async def test_connection(self) -> bool:
@@ -173,9 +224,29 @@ class OllamaClient:
         format: Optional[Union[str, Dict]] = None,
         options: Optional[Dict] = None,
         temperature: Optional[float] = None,
-        think: Optional[bool] = None
+        think: Optional[bool] = None,
+        keep_alive: Optional[str] = None,
+        images: Optional[List[str]] = None,
+        system: Optional[str] = None
     ) -> str:
-        """Asynchronously generate a response from the model with enhanced features."""
+        """
+        Asynchronously generate a response from the model with enhanced features.
+        
+        Args:
+            model: Model name to use
+            prompt: Input prompt
+            stream: Enable streaming response
+            format: Response format - "json" or JSON schema dict for structured output
+            options: Model-specific options (num_ctx, num_predict, etc.)
+            temperature: Sampling temperature (0.0 to 1.0)
+            think: Enable thinking mode for reasoning models (shows reasoning trace)
+            keep_alive: Model memory lifetime (e.g., "5m", "1h", "-1" for indefinite, "0" to unload)
+            images: List of base64-encoded images or file paths for vision models
+            system: System prompt to guide generation
+            
+        Returns:
+            Generated text response
+        """
         try:
             url = f"{self.base_url}/api/generate"
             data = {
@@ -183,12 +254,31 @@ class OllamaClient:
                 "prompt": prompt,
                 "stream": stream
             }
+            
             # Add native thinking support for reasoning models
             if think is not None:
                 data["think"] = think
+                
+            # Add system prompt if provided
+            if system:
+                data["system"] = system
+                
+            # Add keep_alive for model memory management (Context7 feature)
+            if keep_alive is not None:
+                data["keep_alive"] = keep_alive
+            elif self.default_keep_alive:
+                data["keep_alive"] = self.default_keep_alive
+                
+            # Add images for vision models
+            if images:
+                processed_images = await self._process_images(images)
+                if processed_images:
+                    data["images"] = processed_images
+                    
             # Add optional parameters if provided
             if format:
                 data["format"] = format
+                
             # Initialize options dictionary if not provided
             if not options:
                 options = {}
@@ -200,7 +290,7 @@ class OllamaClient:
                 data["options"] = options
 
             async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=data, timeout=120)
+                response = await client.post(url, json=data, timeout=self.default_timeout)
                 if response.status_code == 200:
                     if stream:
                         return await self._handle_stream_response(response)
@@ -223,9 +313,27 @@ class OllamaClient:
         format: Optional[Union[str, Dict]] = None,
         options: Optional[Dict] = None,
         temperature: Optional[float] = None,
-        think: Optional[bool] = None
+        think: Optional[bool] = None,
+        keep_alive: Optional[str] = None,
+        tools: Optional[List[Dict]] = None
     ) -> Dict:
-        """Asynchronously generate a chat completion using the new chat API."""
+        """
+        Asynchronously generate a chat completion using the chat API.
+        
+        Args:
+            model: Model name to use
+            messages: List of message dicts with 'role' and 'content' (and optionally 'images')
+            stream: Enable streaming response
+            format: Response format - "json" or JSON schema dict for structured output
+            options: Model-specific options
+            temperature: Sampling temperature
+            think: Enable thinking mode for reasoning models
+            keep_alive: Model memory lifetime
+            tools: List of tool definitions for function calling (future support)
+            
+        Returns:
+            Chat completion response with OpenAI-compatible structure
+        """
         try:
             url = f"{self.base_url}/api/chat"
             data = {
@@ -233,11 +341,25 @@ class OllamaClient:
                 "messages": messages,
                 "stream": stream
             }
+            
             # Add native thinking support for reasoning models
             if think is not None:
                 data["think"] = think
+                
+            # Add keep_alive for model memory management
+            if keep_alive is not None:
+                data["keep_alive"] = keep_alive
+            elif self.default_keep_alive:
+                data["keep_alive"] = self.default_keep_alive
+                
+            # Add tools for function calling (future Ollama support)
+            if tools:
+                data["tools"] = tools
+                logger.debug(f"Function calling enabled with {len(tools)} tools")
+                
             if format:
                 data["format"] = format
+                
             # Initialize options dictionary if not provided
             if not options:
                 options = {}
@@ -568,7 +690,8 @@ class OllamaClient:
         format: Optional[Union[str, Dict]] = None,
         options: Optional[Dict] = None,
         temperature: Optional[float] = None,
-        think: Optional[bool] = None
+        think: Optional[bool] = None,
+        keep_alive: Optional[str] = None
     ) -> Dict:
         """
         Synchronous wrapper for chat_completion.
@@ -587,7 +710,8 @@ class OllamaClient:
                         format=format,
                         options=options,
                         temperature=temperature,
-                        think=think
+                        think=think,
+                        keep_alive=keep_alive
                     )
                 )
             finally:
@@ -596,3 +720,149 @@ class OllamaClient:
             logger.error(f"Error in chat_completion_sync: {e}")
             # Propagate the exception or return a specific error structure
             raise Exception(f"Synchronous chat completion failed: {str(e)}")
+
+    async def preload_model(self, model: str, keep_alive: str = "-1") -> bool:
+        """
+        Preload a model into memory and keep it loaded.
+        
+        This is useful for reducing latency on subsequent requests by keeping
+        the model warm in memory. Uses keep_alive=-1 by default to keep indefinitely.
+        
+        Args:
+            model: Model name to preload
+            keep_alive: How long to keep model loaded ("-1" = indefinitely, "0" = unload after)
+            
+        Returns:
+            True if model was successfully preloaded
+        """
+        try:
+            logger.info(f"Preloading model '{model}' with keep_alive={keep_alive}")
+            
+            # Send a minimal request to load the model
+            url = f"{self.api_base}/generate"
+            data = {
+                "model": model,
+                "prompt": "",  # Empty prompt just loads the model
+                "keep_alive": keep_alive
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=data, timeout=300)  # Long timeout for large models
+                
+                if response.status_code == 200:
+                    logger.info(f"Model '{model}' successfully preloaded and will stay in memory")
+                    return True
+                else:
+                    logger.error(f"Failed to preload model: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error preloading model: {e}")
+            return False
+
+    async def unload_model(self, model: str) -> bool:
+        """
+        Unload a model from memory immediately.
+        
+        Args:
+            model: Model name to unload
+            
+        Returns:
+            True if model was successfully unloaded
+        """
+        try:
+            logger.info(f"Unloading model '{model}' from memory")
+            
+            url = f"{self.api_base}/generate"
+            data = {
+                "model": model,
+                "prompt": "",
+                "keep_alive": "0"  # 0 = unload immediately
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=data, timeout=30)
+                
+                if response.status_code == 200:
+                    logger.info(f"Model '{model}' successfully unloaded from memory")
+                    return True
+                else:
+                    logger.warning(f"Unexpected response unloading model: {response.status_code}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error unloading model: {e}")
+            return False
+
+    async def _process_images(self, images: List[str]) -> List[str]:
+        """
+        Process image inputs for vision models.
+        
+        Accepts file paths or base64-encoded strings and returns base64-encoded data.
+        
+        Args:
+            images: List of file paths or base64 strings
+            
+        Returns:
+            List of base64-encoded image data
+        """
+        processed = []
+        
+        for img in images:
+            try:
+                # Check if it's already base64 encoded
+                if img.startswith('data:image') or (len(img) > 100 and not Path(img).exists()):
+                    # Already base64 or data URL
+                    if img.startswith('data:image'):
+                        # Extract base64 part from data URL
+                        processed.append(img.split(',', 1)[1] if ',' in img else img)
+                    else:
+                        processed.append(img)
+                elif Path(img).exists():
+                    # It's a file path, read and encode
+                    with open(img, 'rb') as f:
+                        image_data = base64.b64encode(f.read()).decode('utf-8')
+                        processed.append(image_data)
+                        logger.debug(f"Encoded image from file: {img}")
+                else:
+                    logger.warning(f"Could not process image: {img[:50]}...")
+            except Exception as e:
+                logger.error(f"Error processing image: {e}")
+                
+        return processed
+
+    async def chat_with_vision(
+        self,
+        model: str,
+        prompt: str,
+        images: List[str],
+        format: Optional[Union[str, Dict]] = None,
+        temperature: Optional[float] = None
+    ) -> Dict:
+        """
+        Convenience method for vision model chat with images.
+        
+        Args:
+            model: Vision-capable model name (e.g., 'llava', 'gemma3')
+            prompt: Text prompt describing what to analyze in the image
+            images: List of image file paths or base64-encoded data
+            format: Optional JSON schema for structured output
+            temperature: Sampling temperature
+            
+        Returns:
+            Chat completion response
+        """
+        processed_images = await self._process_images(images)
+        
+        messages = [{
+            "role": "user",
+            "content": prompt,
+            "images": processed_images
+        }]
+        
+        return await self.chat_completion(
+            model=model,
+            messages=messages,
+            format=format,
+            temperature=temperature
+        )

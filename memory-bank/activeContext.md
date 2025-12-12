@@ -82,3 +82,51 @@ Completed a comprehensive project-wide refactoring focusing on performance, mode
 - Consider implementing additional Context7 features like structured output and function calling
 - Evaluate potential for batch processing optimizations in production workloads
 - Assess need for adaptive timeout strategies based on model complexity
+
+---
+
+## Session: 2025-12-12 - Bug Fix & Feature Enhancement
+
+### Prompt Ordering Bug Resolution
+
+**Problem:** Floating toolbar displayed prompts in "default" order after app restart instead of user's custom saved order. This was a long-standing bug that persisted through multiple refactoring sessions.
+
+**Root Cause:** The `add_update_callback()` method in `lifai/modules/prompt_editor/editor.py` was passing prompt names in dictionary insertion order rather than the saved order from `prompts.json`.
+
+**Solution:** Modified `add_update_callback()` to:
+1. Retrieve the saved order array from prompts.json
+2. Filter to only include IDs that still exist in prompts
+3. Create `ordered_prompt_names` by looking up names in correct order
+4. Pass both ordered names and order IDs to callbacks
+
+**Impact:** Floating toolbar now correctly preserves user's custom prompt order across app restarts.
+
+### AI Client Context7 Enhancements
+
+**Focus:** Applied latest Context7 documentation research to enhance both AI backend clients with modern API features.
+
+**New Ollama Features:**
+| Feature | Method | Description |
+|---------|--------|-------------|
+| Exception Classes | `OllamaError`, etc. | Proper error hierarchy for better handling |
+| Keep Alive | `keep_alive` param | Control model memory residence time |
+| Model Preload | `preload_model()` | Warm up model for faster first response |
+| Model Unload | `unload_model()` | Free memory immediately |
+| Vision Support | `chat_with_vision()` | Multimodal image+text conversations |
+| Image Processing | `_process_images()` | Convert paths/bytes to base64 |
+
+**New LM Studio Features:**
+| Feature | Method | Description |
+|---------|--------|-------------|
+| Exception Classes | `LMStudioError`, etc. | Proper error hierarchy |
+| Vision Support | `chat_with_vision()` | Multimodal conversations with images |
+| Model Loading | `load_model()` | Programmatic model management with GPU options |
+| Model Unloading | `unload_model()` | Clean resource release |
+| Server Status | `get_server_status()` | Server info and health check |
+| Sync Wrapper | `generate_response_sync()` | Non-async context support |
+
+**Next Considerations:**
+- Test vision capabilities with multimodal models (LLaVA, etc.)
+- Explore structured output/JSON schema features
+- Monitor keep_alive effectiveness for response latency
+- Consider tool/function calling when Ollama adds native support
