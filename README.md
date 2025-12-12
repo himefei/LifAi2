@@ -8,6 +8,14 @@
 
 ## 🚀 Latest Features & Improvements
 
+### 🎨 **Modern UI Overhaul (December 2025)**
+- **LocalSend-Inspired Design**: Complete GUI refresh with modern teal (#009688) color scheme
+- **Minimalist App Hub**: Clean toggle switches, subtle shadows, and smooth hover animations
+- **Neon Border Effects**: Rainbow animated borders during processing, breathing green animation while waiting
+- **Compact Floating Toolbar**: Minimizable to a sleek 44px button with full drag support
+- **Unified Theme**: Consistent modern styling across App Hub, Floating Toolbar, Prompt Editor, and AI Chat
+
+### ⚡ **Core Features**
 - **💬 AI Chat Interface**: Modern ChatGPT-style chat interface with session management, image support, and prompt integration
 - **🌡️ Custom Temperature Controls**: Fine-tune AI creativity per prompt (0.0-2.0) for precision control over response randomness
 - **⚡ Advanced AI Client Integration**: Native LM Studio API v0 support with TTL management, enhanced Ollama endpoints, and comprehensive performance monitoring
@@ -15,7 +23,6 @@
 - **🔄 Async-First Architecture**: Complete modernization with Python 3.9+ async/await for superior performance and responsiveness
 - **🛠️ Modular Plugin System**: Clean separation between core, modules, and utilities following SOLID principles
 - **📊 Performance Analytics**: Real-time metrics for tokens/sec, response times, and model resource usage
-- **🎨 Enhanced User Experience**: Interactive prompt flow diagrams, quick review modes, and intuitive floating toolbar
 - **🔒 Enterprise-Grade Reliability**: Comprehensive error handling, validation, automated backups, and robust logging
 
 ---
@@ -44,10 +51,11 @@
 
 ### 🎨 **Enhanced User Experience**
 - **AI Chat Interface**: Modern ChatGPT-style interface with multi-session support and image capabilities
-- **Floating Toolbar**: Always-accessible text processing with customizable prompt selection
-- **Interactive Help System**: Dynamic prompt flow diagrams with backend-specific guidance
+- **Floating Toolbar**: Minimizable toolbar with neon animations, drag support, and one-click text processing
+- **Modern UI Design**: LocalSend-inspired teal theme with smooth animations and subtle shadows
+- **Visual Feedback**: Rainbow neon borders during processing, breathing green animation while waiting for input
 - **Console-Free Launch**: Clean desktop experience with `run.pyw` double-click execution
-- **Responsive UI**: Modern PyQt6 interface with smooth animations and visual feedback
+- **Responsive UI**: Modern PyQt6 interface with hover effects and visual polish
 
 ---
 
@@ -107,10 +115,12 @@
    - Attach images for vision-capable models
 
 5. **Use the floating toolbar:**
-   - Click **"Floating Toolbar"** in the app hub
+   - Toggle **"Floating Toolbar"** in the app hub
    - Select your desired prompt from the dropdown
-   - Click **"Process Text"** and select any text
-   - AI processes with your custom temperature setting ✨
+   - Click **"Process Text"** (breathing green animation indicates waiting)
+   - Select any text on screen - rainbow neon animation shows processing
+   - Click minimize (➖) to shrink to a compact button
+   - Drag the mini button anywhere, right-click or double-click to restore ✨
 
 ### 🌡️ **Temperature Guide**
 - **Factual Analysis**: Use 0.0-0.3 for consistent, deterministic responses
@@ -154,8 +164,16 @@ This project represents a comprehensive local AI assistant framework built with 
 
 ---
 
-## 🌟 Recent Enhancements (2025)
+## 🌟 Recent Enhancements (December 2025)
 
+### 🎨 **UI/UX Overhaul**
+- **Modern Teal Theme**: LocalSend-inspired design with #009688 accent color across all modules
+- **Neon Border Animations**: Rainbow rotating effect during processing, breathing green while waiting
+- **Minimizable Floating Toolbar**: Compact 44px button with drag support, right-click/double-click to restore
+- **Unified Styling**: Consistent modern look for App Hub, Floating Toolbar, Prompt Editor, and AI Chat
+- **Enhanced Visual Feedback**: Smooth hover animations, subtle shadows, and polished transitions
+
+### ⚡ **Technical Improvements**
 - **🌡️ Custom Temperature Controls**: Per-prompt temperature settings for fine-grained creativity control
 - **⚡ LM Studio Native API Integration**: Optimized performance with `/api/v0/` endpoints and TTL management
 - **🔄 Enhanced Ollama Support**: Latest API endpoints with batch processing and performance monitoring
