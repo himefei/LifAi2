@@ -36,7 +36,7 @@ from pynput import mouse
 
 from lifai.utils.ollama_client import OllamaClient
 from lifai.utils.logger_utils import get_module_logger
-from lifai.config.prompts import llm_prompts, prompt_order, reload_prompts
+from lifai.config.prompts import reload_prompts
 from lifai.utils.clipboard_utils import ClipboardManager
 
 logger = get_module_logger(__name__)
@@ -414,17 +414,20 @@ class PromptManager:
     """Manages prompt operations for the toolbar"""
     
     def __init__(self):
-        self.llm_prompts = llm_prompts.copy()
-        self.prompt_order = self._initialize_prompt_order()
+        # Always reload fresh from JSON file to ensure we have the latest order
+        # This fixes the issue where import-time snapshot would have stale order
+        fresh_prompts, fresh_order = reload_prompts()
+        self.llm_prompts = fresh_prompts.copy()
+        self.prompt_order = self._initialize_prompt_order(fresh_order)
     
-    def _initialize_prompt_order(self) -> List[str]:
+    def _initialize_prompt_order(self, order_ids: List[str]) -> List[str]:
         """Initialize prompt order from configuration"""
         initial_prompt_names_ordered = []
         
-        if isinstance(prompt_order, list):
+        if isinstance(order_ids, list) and order_ids:
             id_to_name_map = self._create_id_to_name_mapping()
             
-            for p_id in prompt_order:
+            for p_id in order_ids:
                 if p_id in id_to_name_map:
                     initial_prompt_names_ordered.append(id_to_name_map[p_id])
                 else:
@@ -435,6 +438,8 @@ class PromptManager:
                 if name not in initial_prompt_names_ordered:
                     initial_prompt_names_ordered.append(name)
                     logger.warning(f"Prompt name '{name}' was not in initial order, appending")
+        else:
+            logger.warning(f"order_ids is empty or not a list: {order_ids}")
         
         return initial_prompt_names_ordered or list(self.llm_prompts.keys())
     

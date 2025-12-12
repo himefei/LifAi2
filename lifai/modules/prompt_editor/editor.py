@@ -625,6 +625,22 @@ If your template is empty, a default instruction like "Process the following tex
             logger.info(f"Added prompt update callback: {callback.__qualname__}")
             
             try:
-                callback([p["name"] for p in self.prompts_data["prompts"]])
+                # Create ordered prompt names using the saved order (same as _notify_callbacks)
+                id_to_name_map = {p["id"]: p["name"] for p in self.prompts_data["prompts"]}
+                ordered_prompt_names = [id_to_name_map[pid] for pid in self.prompts_data["order"] if pid in id_to_name_map]
+                
+                # Add any missing prompts
+                current_names = set(ordered_prompt_names)
+                for prompt in self.prompts_data["prompts"]:
+                    if prompt["name"] not in current_names:
+                        ordered_prompt_names.append(prompt["name"])
+                
+                # Call with proper order, matching _notify_callbacks behavior
+                if callback.__code__.co_argcount > 2:
+                    callback(ordered_prompt_names, self.prompts_data["order"])
+                elif callback.__code__.co_argcount > 1:
+                    callback(ordered_prompt_names)
+                else:
+                    callback()
             except Exception as e:
                 logger.error(f"Error in initial callback {callback.__qualname__}: {e}")
