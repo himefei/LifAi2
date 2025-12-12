@@ -1,8 +1,11 @@
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QLabel, QComboBox, QPushButton, QFrame, QTextEdit, QScrollArea,
-                            QMessageBox, QDialog)
+                            QMessageBox, QDialog, QSpacerItem, QSizePolicy, QStackedWidget,
+                            QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QPixmap, QFont
+from PyQt6.QtGui import QIcon, QPixmap, QFont, QColor
+
+from lifai.core.modern_ui import ToggleSwitch, ModernTheme
 import logging
 import os
 import sys
@@ -78,38 +81,6 @@ class LogHandler(logging.Handler):
         msg = self.formatter.format(record)
         self.widget.append_log(msg, record.levelno)
 
-class ModuleToggle(QWidget):
-    toggled = pyqtSignal(bool)
-    
-    def __init__(self, title, module_creator=None, parent=None):
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.title = QLabel(title)
-        self.button = QPushButton("Enable")
-        self.button.setCheckable(True)
-        self.button.clicked.connect(self._on_toggle)
-        
-        layout.addWidget(self.title)
-        layout.addStretch()
-        layout.addWidget(self.button)
-        
-        self.module = None
-        self.module_creator = module_creator
-        
-    def _on_toggle(self, checked):
-        self.button.setText("Disable" if checked else "Enable")
-        if checked and self.module_creator:
-            if not self.module:
-                self.module = self.module_creator()
-            self.module.show()
-        elif self.module:
-            self.module.hide()
-        self.toggled.emit(checked)
-        
-    def get(self):
-        return self.button.isChecked()
 
 class LifAi2Hub(QMainWindow):
     def __init__(self):
@@ -143,158 +114,399 @@ class LifAi2Hub(QMainWindow):
         self.initialize_modules()
         
         # 设置窗口标题和大小
-        self.setWindowTitle("LifAi2 Control Hub")  # Remove emoji from title since it's in the taskbar
-        self.resize(600, 650)
+        self.setWindowTitle("LifAi2")
+        self.resize(720, 580)
         
         # 日志初始化
         logging.info("LifAi2 Control Hub initialized")
 
     def setup_ui(self):
+        # Apply modern theme
+        self.setStyleSheet(ModernTheme.get_stylesheet())
+        
         central_widget = QWidget()
+        central_widget.setStyleSheet(f"background-color: {ModernTheme.BG_WINDOW};")
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
         
-        # === 全局设置面板 ===
-        settings_group = QFrame()
-        settings_group.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
-        settings_layout = QVBoxLayout(settings_group)
-        settings_layout.setSpacing(10)
+        # Main horizontal layout: Sidebar + Content
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
-        # Backend 选择
-        backend_layout = QHBoxLayout()
-        backend_layout.addWidget(QLabel("Backend:"))
+        # === SIDEBAR ===
+        sidebar = QFrame()
+        sidebar.setFixedWidth(200)
+        sidebar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {ModernTheme.BG_SIDEBAR};
+                border: none;
+                border-radius: 0;
+                border-right: 1px solid {ModernTheme.BORDER};
+            }}
+        """)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(16, 24, 16, 24)
+        sidebar_layout.setSpacing(8)
+        
+        # App title in sidebar
+        title_label = QLabel("LifAi2")
+        title_label.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+        title_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; padding-bottom: 16px;")
+        sidebar_layout.addWidget(title_label)
+        
+        # Navigation buttons
+        self.nav_modules = self._create_nav_button("🔧", "Modules")
+        self.nav_modules.setChecked(True)
+        self.nav_modules.clicked.connect(lambda: self._switch_page(0))
+        sidebar_layout.addWidget(self.nav_modules)
+        
+        self.nav_settings = self._create_nav_button("⚙", "Settings")
+        self.nav_settings.clicked.connect(lambda: self._switch_page(1))
+        sidebar_layout.addWidget(self.nav_settings)
+        
+        self.nav_logs = self._create_nav_button("📋", "Logs")
+        self.nav_logs.clicked.connect(lambda: self._switch_page(2))
+        sidebar_layout.addWidget(self.nav_logs)
+        
+        sidebar_layout.addStretch()
+        
+        # Version at bottom of sidebar
+        version_label = QLabel("v2.0")
+        version_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-size: 11px;")
+        sidebar_layout.addWidget(version_label)
+        
+        main_layout.addWidget(sidebar)
+        
+        # === CONTENT AREA ===
+        content_area = QWidget()
+        content_area.setStyleSheet(f"background-color: {ModernTheme.BG_WINDOW};")
+        content_layout = QVBoxLayout(content_area)
+        content_layout.setContentsMargins(32, 32, 32, 32)
+        content_layout.setSpacing(0)
+        
+        # Stacked widget for different pages
+        self.page_stack = QStackedWidget()
+        self.page_stack.setStyleSheet("background: transparent;")
+        
+        # Page 0: Modules
+        self.page_stack.addWidget(self._create_modules_page())
+        
+        # Page 1: Settings
+        self.page_stack.addWidget(self._create_settings_page())
+        
+        # Page 2: Logs
+        self.page_stack.addWidget(self._create_logs_page())
+        
+        content_layout.addWidget(self.page_stack)
+        main_layout.addWidget(content_area)
+        
+        # Configure logging
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+        log_handler = LogHandler(self.log_widget)
+        root_logger.addHandler(log_handler)
+        logging.info("LifAi2 started")
+    
+    def _create_nav_button(self, icon: str, text: str) -> QPushButton:
+        """Create a sidebar navigation button."""
+        btn = QPushButton(f"  {icon}   {text}")
+        btn.setFont(QFont("Segoe UI", 10))
+        btn.setFixedHeight(44)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setCheckable(True)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {ModernTheme.TEXT_PRIMARY};
+                border: none;
+                border-radius: 10px;
+                text-align: left;
+                padding-left: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.BG_HOVER};
+            }}
+            QPushButton:checked {{
+                background-color: {ModernTheme.PRIMARY};
+                color: white;
+            }}
+        """)
+        return btn
+    
+    def _switch_page(self, index: int):
+        """Switch to a different page in the stack."""
+        self.page_stack.setCurrentIndex(index)
+        # Update nav button states
+        self.nav_modules.setChecked(index == 0)
+        self.nav_settings.setChecked(index == 1)
+        self.nav_logs.setChecked(index == 2)
+    
+    def _create_modules_page(self) -> QWidget:
+        """Create the Modules page."""
+        page = QWidget()
+        page.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(24)
+        
+        # Page title
+        title = QLabel("Modules")
+        title.setFont(QFont("Segoe UI", 22, QFont.Weight.DemiBold))
+        title.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        layout.addWidget(title)
+        
+        # Modules card
+        card = self._create_card()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(24, 20, 24, 20)
+        card_layout.setSpacing(0)
+        
+        # Floating Toolbar row
+        self.toolbar_toggle = self._create_setting_row("Floating Toolbar", "Quick AI actions on selected text")
+        card_layout.addWidget(self.toolbar_toggle)
+        card_layout.addWidget(self._create_separator())
+        
+        # Prompt Editor row
+        self.prompt_editor_toggle = self._create_setting_row("Prompt Editor", "Create and manage system prompts")
+        card_layout.addWidget(self.prompt_editor_toggle)
+        card_layout.addWidget(self._create_separator())
+        
+        # AI Chat row
+        self.ai_chat_toggle = self._create_setting_row("AI Chat", "Conversational AI interface")
+        card_layout.addWidget(self.ai_chat_toggle)
+        
+        layout.addWidget(card)
+        layout.addStretch()
+        
+        return page
+    
+    def _create_settings_page(self) -> QWidget:
+        """Create the Settings page."""
+        page = QWidget()
+        page.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(24)
+        
+        # Page title
+        title = QLabel("Settings")
+        title.setFont(QFont("Segoe UI", 22, QFont.Weight.DemiBold))
+        title.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        layout.addWidget(title)
+        
+        # AI Backend card
+        card = self._create_card()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(24, 20, 24, 20)
+        card_layout.setSpacing(16)
+        
+        # Section header
+        section = QLabel("AI Backend")
+        section.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
+        section.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        card_layout.addWidget(section)
+        
+        # Provider row
+        provider_row = QHBoxLayout()
+        provider_row.setSpacing(16)
+        provider_label = QLabel("Provider")
+        provider_label.setFont(QFont("Segoe UI", 10))
+        provider_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        provider_row.addWidget(provider_label)
+        provider_row.addStretch()
+        
         self.backend_combo = QComboBox()
         self.backend_combo.addItems(['ollama', 'lmstudio'])
         self.backend_combo.setCurrentText(self.settings['backend'])
-        backend_layout.addWidget(self.backend_combo)
+        self.backend_combo.setMinimumWidth(160)
+        self.backend_combo.currentTextChanged.connect(self._on_backend_changed)
+        provider_row.addWidget(self.backend_combo)
         
-        # Add help button for prompt flow explanation
+        # Help button
         help_btn = QPushButton("?")
-        help_btn.setFixedSize(25, 25)
-        help_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
+        help_btn.setFixedSize(36, 36)
+        help_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {ModernTheme.PRIMARY};
                 color: white;
                 border: none;
-                border-radius: 12px;
+                border-radius: 18px;
                 font-weight: bold;
-                font-size: 12px;
-                text-align: center;
+                font-size: 16px;
                 padding: 0px;
-                margin: 0px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.PRIMARY_DARK};
+            }}
         """)
-        help_btn.setToolTip("Show how prompts are processed")
         help_btn.clicked.connect(self.show_prompt_flow_help)
-        backend_layout.addWidget(help_btn)
+        provider_row.addWidget(help_btn)
         
-        # Add confirm selection button
-        confirm_btn = QPushButton("✓ Confirm Selection")
-        confirm_btn.clicked.connect(self.confirm_backend_selection)
-        backend_layout.addWidget(confirm_btn)
+        card_layout.addLayout(provider_row)
+        card_layout.addWidget(self._create_separator())
         
-        settings_layout.addLayout(backend_layout)
+        # Model row
+        model_row = QHBoxLayout()
+        model_row.setSpacing(16)
+        model_label = QLabel("Model")
+        model_label.setFont(QFont("Segoe UI", 10))
+        model_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        model_row.addWidget(model_label)
+        model_row.addStretch()
         
-        # Model 选择
-        model_layout = QHBoxLayout()
-        model_layout.addWidget(QLabel("Model:"))
         self.model_combo = QComboBox()
+        self.model_combo.setMinimumWidth(280)
         self.model_combo.currentTextChanged.connect(self.on_model_change)
-        self.refresh_models()
-        model_layout.addWidget(self.model_combo)
+        model_row.addWidget(self.model_combo)
         
-        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn = QPushButton("⟳")
+        refresh_btn.setFixedSize(36, 36)
+        refresh_btn.setFont(QFont("Segoe UI Symbol", 14))
+        refresh_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {ModernTheme.BG_HOVER};
+                color: {ModernTheme.TEXT_PRIMARY};
+                border: none;
+                border-radius: 18px;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.BORDER};
+            }}
+        """)
         refresh_btn.clicked.connect(self.refresh_models)
-        model_layout.addWidget(refresh_btn)
-        settings_layout.addLayout(model_layout)
+        model_row.addWidget(refresh_btn)
         
-        main_layout.addWidget(settings_group)
+        card_layout.addLayout(model_row)
         
-        # === 模块控制面板 ===
-        modules_group = QFrame()
-        modules_group.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
-        modules_layout = QVBoxLayout(modules_group)
+        layout.addWidget(card)
+        layout.addStretch()
         
-        # Text Improver toggle
-        # self.text_improver_toggle = ModuleToggle("Text Improver Window")
-        # self.text_improver_toggle.toggled.connect(self.toggle_text_improver)
-        # modules_layout.addWidget(self.text_improver_toggle)
+        # Refresh models after UI is built
+        self.refresh_models()
         
-        # Floating Toolbar toggle
-        self.toolbar_toggle = ModuleToggle("Floating Toolbar")
-        self.toolbar_toggle.toggled.connect(self.toggle_floating_toolbar)
-        modules_layout.addWidget(self.toolbar_toggle)
+        return page
+    
+    def _create_logs_page(self) -> QWidget:
+        """Create the Logs page."""
+        page = QWidget()
+        page.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(24)
         
-        # Prompt Editor toggle
-        self.prompt_editor_toggle = ModuleToggle("Prompt Editor")
-        self.prompt_editor_toggle.toggled.connect(self.toggle_prompt_editor)
-        modules_layout.addWidget(self.prompt_editor_toggle)
+        # Page title
+        title = QLabel("Activity Log")
+        title.setFont(QFont("Segoe UI", 22, QFont.Weight.DemiBold))
+        title.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        layout.addWidget(title)
         
-        # AI Chat toggle
-        self.ai_chat_toggle = ModuleToggle("AI Chat")
-        self.ai_chat_toggle.toggled.connect(self.toggle_ai_chat)
-        modules_layout.addWidget(self.ai_chat_toggle)
+        # Logs card - this should expand
+        card = self._create_card()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(12)
         
-        # Knowledge Manager toggle # RAG Removed
-        # self.knowledge_manager_toggle = ModuleToggle("Knowledge Manager") # RAG Removed
-        # self.knowledge_manager_toggle.toggled.connect(self.toggle_knowledge_manager) # RAG Removed
-        # modules_layout.addWidget(self.knowledge_manager_toggle) # RAG Removed
-        
-        main_layout.addWidget(modules_group)
-        
-        # === 日志面板 ===
-        log_group = QFrame()
-        log_group.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
-        log_layout = QVBoxLayout(log_group)
-        
-        # 日志显示区域
+        # Log widget - set to expand
         self.log_widget = LogWidget()
-        log_layout.addWidget(self.log_widget)
+        self.log_widget.setMinimumHeight(150)
+        self.log_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        card_layout.addWidget(self.log_widget, 1)  # stretch factor 1
         
-        # 日志控制
-        log_controls = QHBoxLayout()
+        # Controls row
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
         
-        # 日志级别选择
-        log_controls.addWidget(QLabel("Log Level:"))
+        level_label = QLabel("Level:")
+        level_label.setFont(QFont("Segoe UI", 10))
+        level_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        controls.addWidget(level_label)
+        
         self.log_level_combo = QComboBox()
         self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
         self.log_level_combo.setCurrentText("INFO")
         self.log_level_combo.currentTextChanged.connect(self.change_log_level)
-        log_controls.addWidget(self.log_level_combo)
+        self.log_level_combo.setFixedWidth(100)
+        controls.addWidget(self.log_level_combo)
         
-        # 清除和保存按钮
-        clear_btn = QPushButton("Clear Logs")
+        controls.addStretch()
+        
+        clear_btn = QPushButton("Clear")
         clear_btn.clicked.connect(self.clear_logs)
-        save_btn = QPushButton("Save Logs")
+        controls.addWidget(clear_btn)
+        
+        save_btn = QPushButton("Save")
         save_btn.clicked.connect(self.save_logs)
+        controls.addWidget(save_btn)
         
-        log_controls.addStretch()
-        log_controls.addWidget(clear_btn)
-        log_controls.addWidget(save_btn)
+        card_layout.addLayout(controls)
+        layout.addWidget(card, 1)  # stretch factor 1 to fill space
         
-        log_layout.addLayout(log_controls)
-        main_layout.addWidget(log_group)
+        return page
+    
+    def _create_card(self) -> QFrame:
+        """Create a card container with shadow."""
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {ModernTheme.BG_CARD};
+                border: none;
+                border-radius: 16px;
+            }}
+        """)
+        # Add subtle shadow
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 25))
+        shadow.setOffset(0, 2)
+        card.setGraphicsEffect(shadow)
+        return card
+    
+    def _create_separator(self) -> QFrame:
+        """Create a horizontal separator line."""
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background-color: {ModernTheme.BORDER}; border: none; border-radius: 0;")
+        return sep
+    
+    def _create_setting_row(self, title: str, description: str) -> QWidget:
+        """Create a setting row with title, description, and toggle switch."""
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 16, 0, 16)
+        layout.setSpacing(16)
         
-        # 配置日志处理器
-        root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
+        # Text section
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(4)
         
-        # 移除现有的处理器
-        for handler in root_logger.handlers[:]:
-            root_logger.removeHandler(handler)
+        title_label = QLabel(title)
+        title_label.setFont(QFont("Segoe UI", 10))
+        title_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        text_layout.addWidget(title_label)
         
-        # 添加自定义处理器
-        log_handler = LogHandler(self.log_widget)
-        root_logger.addHandler(log_handler)
+        desc_label = QLabel(description)
+        desc_label.setFont(QFont("Segoe UI", 9))
+        desc_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY};")
+        text_layout.addWidget(desc_label)
         
-        # 添加测试日志
-        logging.debug("Debug message test")
-        logging.info("Info message test")
-        logging.warning("Warning message test")
-        logging.error("Error message test")
+        layout.addLayout(text_layout)
+        layout.addStretch()
+        
+        # Toggle switch
+        switch = ToggleSwitch()
+        layout.addWidget(switch)
+        
+        # Store switch reference
+        row.switch = switch
+        return row
+    
+    def _on_backend_changed(self, backend: str):
+        """Handle backend combo change and auto-apply."""
+        self.confirm_backend_selection()
 
     def get_active_client(self):
         """获取当前活动的客户端"""
@@ -346,27 +558,17 @@ class LifAi2Hub(QMainWindow):
             ai_client=self.get_active_client()
         )
         
-        # 初始化其他模块
-        # self.modules['text_improver'] = TextImproverWindow(
-        #     settings=self.settings,
-        #     ollama_client=self.get_active_client()
-        # )
-        
         self.modules['floating_toolbar'] = FloatingToolbarModule(
             settings=self.settings,
             ollama_client=self.get_active_client()
         )
         
-        # self.modules['knowledge_manager'] = KnowledgeManagerWindow( # RAG Removed
-        #     settings=self.settings # RAG Removed
-        # ) # RAG Removed
+        # Connect toggle switches to module visibility
+        self.toolbar_toggle.switch.toggled.connect(self.toggle_floating_toolbar)
+        self.prompt_editor_toggle.switch.toggled.connect(self.toggle_prompt_editor)
+        self.ai_chat_toggle.switch.toggled.connect(self.toggle_ai_chat)
         
         # 注册 prompt 更新回调
-        # if hasattr(self.modules['text_improver'], 'update_prompts'):
-        #     self.modules['prompt_editor'].add_update_callback(
-        #         self.modules['text_improver'].update_prompts
-        #     )
-            
         if hasattr(self.modules['floating_toolbar'], 'update_prompts'):
             self.modules['prompt_editor'].add_update_callback(
                 self.modules['floating_toolbar'].update_prompts
@@ -377,36 +579,26 @@ class LifAi2Hub(QMainWindow):
                 self.modules['ai_chat'].update_prompts
             )
 
-    def toggle_text_improver(self, enabled):
-        pass
-        # if enabled:
-        #     self.modules['text_improver'].show()
-        # else:
-        #     self.modules['text_improver'].hide()
-
     def toggle_floating_toolbar(self, enabled):
+        """Toggle floating toolbar visibility."""
         if enabled:
             self.modules['floating_toolbar'].show()
         else:
             self.modules['floating_toolbar'].hide()
 
     def toggle_prompt_editor(self, enabled):
+        """Toggle prompt editor visibility."""
         if enabled:
             self.modules['prompt_editor'].show()
         else:
             self.modules['prompt_editor'].hide()
 
     def toggle_ai_chat(self, enabled):
+        """Toggle AI chat visibility."""
         if enabled:
             self.modules['ai_chat'].show()
         else:
             self.modules['ai_chat'].hide()
-
-    # def toggle_knowledge_manager(self, enabled): # RAG Removed
-    #     if enabled: # RAG Removed
-    #         self.modules['knowledge_manager'].show() # RAG Removed
-    #     else: # RAG Removed
-    #         self.modules['knowledge_manager'].hide() # RAG Removed
 
     def change_log_level(self, level):
         """更改日志级别"""

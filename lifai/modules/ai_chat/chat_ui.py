@@ -28,6 +28,7 @@ from PyQt6.QtGui import (
 
 from lifai.utils.logger_utils import get_module_logger
 from lifai.utils.clipboard_utils import ClipboardManager
+from lifai.core.modern_ui import ModernTheme
 
 logger = get_module_logger(__name__)
 
@@ -60,12 +61,12 @@ class ResizableTextEdit(QFrame):
         self.resize_handle.setCursor(QCursor(Qt.CursorShape.SizeVerCursor))
         self.resize_handle.setStyleSheet("""
             QFrame {
-                background-color: #ddd;
-                border: 1px solid #bbb;
+                background-color: #E8E8E8;
+                border: none;
                 border-radius: 4px;
             }
             QFrame:hover {
-                background-color: #1976D2;
+                background-color: #009688;
             }
         """)
         self.resize_handle.mousePressEvent = self.start_resize
@@ -229,7 +230,7 @@ class TypingAnimationWidget(QFrame):
         header_layout = QHBoxLayout()
         role_label = QLabel("Assistant")
         role_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        role_label.setStyleSheet("color: #388E3C;")
+        role_label.setStyleSheet("color: #009688;")
         header_layout.addWidget(role_label)
         header_layout.addStretch()
         message_layout.addLayout(header_layout)
@@ -237,7 +238,7 @@ class TypingAnimationWidget(QFrame):
         # Typing indicator
         self.typing_label = QLabel("AI is thinking")
         self.typing_label.setStyleSheet("""
-            color: #666;
+            color: #78909C;
             font-family: 'Segoe UI';
             font-size: 14px;
             font-style: italic;
@@ -250,10 +251,10 @@ class TypingAnimationWidget(QFrame):
         # Style similar to AI messages
         message_frame.setStyleSheet("""
             QFrame {
-                background-color: #F0F8FF;
-                border-radius: 15px;
+                background-color: #F5F7F8;
+                border-radius: 16px;
                 margin: 2px;
-                border: 1px solid #B3D9FF;
+                border: 1px solid #E8E8E8;
             }
         """)
         
@@ -303,15 +304,15 @@ class MessageWidget(QFrame):
         role_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         
         if self.message.role == "user":
-            role_label.setStyleSheet("color: #1976D2;")
+            role_label.setStyleSheet("color: #00796B;")  # Teal dark
         elif self.message.role == "assistant":
-            role_label.setStyleSheet("color: #388E3C;")
+            role_label.setStyleSheet("color: #009688;")  # Teal primary
         else:
-            role_label.setStyleSheet("color: #666;")
+            role_label.setStyleSheet("color: #78909C;")
         
         # Timestamp
         timestamp_label = QLabel(self.message.timestamp.strftime("%H:%M"))
-        timestamp_label.setStyleSheet("color: #999; font-size: 11px;")
+        timestamp_label.setStyleSheet("color: #B0BEC5; font-size: 11px;")
         
         if self.message.role == "user":
             header_layout.addStretch()
@@ -348,21 +349,21 @@ class MessageWidget(QFrame):
         if self.message.role == "user":
             message_frame.setStyleSheet("""
                 QFrame {
-                    background-color: #F1F8E9;
-                    border-radius: 15px;
+                    background-color: #E0F2F1;
+                    border-radius: 16px;
                     margin: 2px;
-                    border: 1px solid #E8F5E8;
+                    border: 1px solid #B2DFDB;
                 }
                 QTextEdit {
                     background-color: transparent;
                     border: none;
                     font-family: 'Segoe UI';
                     font-size: 14px;
-                    color: #2E7D32;
+                    color: #00695C;
                 }
             """)
-            role_label.setStyleSheet("color: #388E3C;")
-            timestamp_label.setStyleSheet("color: #81C784; font-size: 11px;")
+            role_label.setStyleSheet("color: #00796B;")
+            timestamp_label.setStyleSheet("color: #80CBC4; font-size: 11px;")
             
             # User messages on the right with some margin
             container_layout.addStretch(2)  # More stretch on left
@@ -371,17 +372,17 @@ class MessageWidget(QFrame):
         else:
             message_frame.setStyleSheet("""
                 QFrame {
-                    background-color: #F5F5F5;
-                    border-radius: 15px;
+                    background-color: #F5F7F8;
+                    border-radius: 16px;
                     margin: 2px;
-                    border: 1px solid #E0E0E0;
+                    border: 1px solid #E8E8E8;
                 }
                 QTextEdit {
                     background-color: transparent;
                     border: none;
                     font-family: 'Segoe UI';
                     font-size: 14px;
-                    color: #333;
+                    color: #37474F;
                 }
             """)
             
@@ -457,22 +458,30 @@ class PromptSelectorWidget(QFrame):
         
         self.setStyleSheet("""
             QFrame {
-                border: 1px solid #ddd;
-                border-radius: 5px;
-                background-color: #fafafa;
+                border: 1px solid #E8E8E8;
+                border-radius: 12px;
+                background-color: #FFFFFF;
             }
             QComboBox {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                padding: 5px;
-                background-color: white;
+                border: 1px solid #E8E8E8;
+                border-radius: 8px;
+                padding: 8px 12px;
+                background-color: #FFFFFF;
+                font-size: 13px;
+            }
+            QComboBox:hover {
+                border-color: #009688;
+            }
+            QComboBox:focus {
+                border-color: #009688;
             }
             QTextEdit {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                background-color: white;
+                border: 1px solid #E8E8E8;
+                border-radius: 8px;
+                background-color: #FFFFFF;
                 font-family: 'Consolas', monospace;
                 font-size: 11px;
+                padding: 8px;
             }
         """)
     
@@ -578,17 +587,39 @@ class ChatInterface(QMainWindow):
         sidebar = QFrame()
         sidebar.setMaximumWidth(320)
         sidebar.setMinimumWidth(280)
+        sidebar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {ModernTheme.BG_CARD};
+                border-right: 1px solid {ModernTheme.BORDER};
+            }}
+        """)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
         
         # Header
         header_label = QLabel("💬 AI Chat")
         header_label.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        header_label.setStyleSheet(f"color: {ModernTheme.PRIMARY};")
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header_label)
         
         # New chat button
         new_chat_btn = QPushButton("+ New Chat")
+        new_chat_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {ModernTheme.PRIMARY};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 12px 20px;
+                font-weight: 600;
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.PRIMARY_DARK};
+            }}
+        """)
         new_chat_btn.clicked.connect(self.create_new_session)
         layout.addWidget(new_chat_btn)
         
@@ -707,15 +738,31 @@ class ChatInterface(QMainWindow):
     def create_input_area(self, parent_widget):
         """Create the message input area"""
         layout = QVBoxLayout(parent_widget)
-        layout.setContentsMargins(10, 5, 10, 10)
+        layout.setContentsMargins(12, 8, 12, 12)
         
         # Input controls
         controls_layout = QHBoxLayout()
+        
+        # Tool button style
+        tool_btn_style = f"""
+            QToolButton {{
+                background-color: {ModernTheme.BG_CARD};
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-size: 16px;
+            }}
+            QToolButton:hover {{
+                background-color: {ModernTheme.BG_HOVER};
+                border-color: {ModernTheme.PRIMARY};
+            }}
+        """
         
         # Attach button
         attach_btn = QToolButton()
         attach_btn.setText("📎")
         attach_btn.setToolTip("Attach image")
+        attach_btn.setStyleSheet(tool_btn_style)
         attach_btn.clicked.connect(self.attach_image)
         controls_layout.addWidget(attach_btn)
         
@@ -723,6 +770,7 @@ class ChatInterface(QMainWindow):
         paste_btn = QToolButton()
         paste_btn.setText("📋")
         paste_btn.setToolTip("Paste from clipboard")
+        paste_btn.setStyleSheet(tool_btn_style)
         paste_btn.clicked.connect(self.paste_from_clipboard)
         controls_layout.addWidget(paste_btn)
         
@@ -730,6 +778,20 @@ class ChatInterface(QMainWindow):
         
         # Clear button
         clear_btn = QPushButton("Clear")
+        clear_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {ModernTheme.BG_CARD};
+                color: {ModernTheme.TEXT_PRIMARY};
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.BG_HOVER};
+                border-color: {ModernTheme.PRIMARY};
+            }}
+        """)
         clear_btn.clicked.connect(self.clear_chat)
         controls_layout.addWidget(clear_btn)
         
@@ -745,64 +807,106 @@ class ChatInterface(QMainWindow):
         
         # Send button
         self.send_button = QPushButton("Send")
+        self.send_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {ModernTheme.PRIMARY};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 12px 24px;
+                font-size: 14px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.PRIMARY_DARK};
+            }}
+            QPushButton:disabled {{
+                background-color: {ModernTheme.PRIMARY_LIGHT};
+            }}
+        """)
         self.send_button.clicked.connect(self.send_message)
-        self.send_button.setFixedSize(80, self.message_input.height())
+        self.send_button.setFixedSize(100, self.message_input.height())
         input_layout.addWidget(self.send_button)
         
         layout.addLayout(input_layout)
     
     def apply_styles(self):
         """Apply modern styling"""
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #ffffff;
-            }
-            QFrame {
-                background-color: #ffffff;
-            }
-            QPushButton {
-                background-color: #1976D2;
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {ModernTheme.BG_WINDOW};
+            }}
+            QFrame {{
+                background-color: {ModernTheme.BG_CARD};
+            }}
+            QPushButton {{
+                background-color: {ModernTheme.PRIMARY};
                 color: white;
                 border: none;
-                border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1565C0;
-            }
-            QPushButton:pressed {
-                background-color: #0D47A1;
-            }
-            QTextEdit {
-                border: 1px solid #ddd;
-                border-radius: 5px;
-                padding: 8px;
+                border-radius: 8px;
+                padding: 10px 18px;
+                font-weight: 600;
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.PRIMARY_DARK};
+            }}
+            QPushButton:pressed {{
+                background-color: #00695C;
+            }}
+            QTextEdit {{
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                padding: 10px;
                 font-family: 'Segoe UI';
                 font-size: 14px;
-                background-color: #ffffff;
-            }
-            QTextEdit:focus {
-                border: 2px solid #1976D2;
-            }
-            QComboBox {
-                border: 1px solid #ddd;
-                border-radius: 5px;
-                padding: 5px;
-                background-color: white;
-            }
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #ddd;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
+                background-color: {ModernTheme.BG_CARD};
+                color: {ModernTheme.TEXT_PRIMARY};
+            }}
+            QTextEdit:focus {{
+                border: 2px solid {ModernTheme.PRIMARY};
+            }}
+            QComboBox {{
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                padding: 8px 12px;
+                background-color: {ModernTheme.BG_CARD};
+                font-size: 13px;
+            }}
+            QComboBox:hover {{
+                border-color: {ModernTheme.PRIMARY};
+            }}
+            QGroupBox {{
+                font-weight: 600;
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 12px;
+                margin-top: 12px;
+                padding-top: 12px;
+                background-color: {ModernTheme.BG_CARD};
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }
+                left: 12px;
+                padding: 0 6px 0 6px;
+                color: {ModernTheme.TEXT_PRIMARY};
+            }}
+            QScrollBar:vertical {{
+                background-color: transparent;
+                width: 8px;
+                margin: 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: #D0D0D0;
+                border-radius: 4px;
+                min-height: 30px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background-color: #B0B0B0;
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0;
+            }}
         """)
     
     def eventFilter(self, obj, event):
@@ -852,7 +956,7 @@ class ChatInterface(QMainWindow):
             
             # Highlight current session
             if session == self.current_session:
-                item.setBackground(QColor("#E3F2FD"))
+                item.setBackground(QColor("#B2DFDB"))  # Teal light
             
             self.sessions_list.addItem(item)
     

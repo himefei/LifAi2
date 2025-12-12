@@ -20,11 +20,12 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QPushButton, QListWidget, QFrame, QMessageBox, QCheckBox, QMenu, QToolButton, QListWidgetItem,
-    QDoubleSpinBox
+    QDoubleSpinBox, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QColor
 from lifai.utils.logger_utils import get_module_logger
+from lifai.core.modern_ui import ModernTheme
 
 logger = get_module_logger(__name__)
 
@@ -212,11 +213,17 @@ class PromptEditorWindow(QMainWindow):
     def _setup_ui(self) -> None:
         """Setup the user interface"""
         self.setWindowTitle("Prompt Editor")
-        self.resize(800, 600)
+        self.resize(900, 650)
+        
+        # Apply modern stylesheet
+        self.setStyleSheet(ModernTheme.get_stylesheet())
         
         central_widget = QWidget()
+        central_widget.setStyleSheet(f"background-color: {ModernTheme.BG_WINDOW};")
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(16)
         
         # Create left and right panels
         self._create_left_panel(main_layout)
@@ -229,12 +236,55 @@ class PromptEditorWindow(QMainWindow):
     def _create_left_panel(self, main_layout: QHBoxLayout) -> None:
         """Create the left panel with prompts list"""
         left_panel = QFrame()
-        left_panel.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        left_panel.setObjectName("leftPanel")
+        left_panel.setStyleSheet(f"""
+            QFrame#leftPanel {{
+                background-color: {ModernTheme.BG_CARD};
+                border-radius: 16px;
+                border: none;
+            }}
+        """)
         left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(16, 16, 16, 16)
+        left_layout.setSpacing(12)
         
-        left_layout.addWidget(QLabel("Prompts:"))
+        # Add shadow effect
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setXOffset(0)
+        shadow.setYOffset(2)
+        shadow.setColor(QColor(0, 0, 0, 25))
+        left_panel.setGraphicsEffect(shadow)
+        
+        # Section header
+        header_label = QLabel("Prompts")
+        header_label.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        header_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY}; padding-bottom: 4px;")
+        left_layout.addWidget(header_label)
         
         self.prompts_list = OrderedListWidget()
+        self.prompts_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {ModernTheme.BG_CARD};
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                padding: 4px;
+                font-size: 13px;
+                font-family: 'Segoe UI Emoji', 'Segoe UI', sans-serif;
+            }}
+            QListWidget::item {{
+                padding: 10px 12px;
+                border-radius: 6px;
+                margin: 2px 0;
+            }}
+            QListWidget::item:selected {{
+                background-color: {ModernTheme.PRIMARY_LIGHT};
+                color: {ModernTheme.TEXT_PRIMARY};
+            }}
+            QListWidget::item:hover {{
+                background-color: {ModernTheme.BG_HOVER};
+            }}
+        """)
         self.prompts_list.currentItemChanged.connect(self._on_prompt_select)
         self.prompts_list.model().rowsMoved.connect(self._on_prompts_reordered)
         left_layout.addWidget(self.prompts_list)
@@ -245,8 +295,25 @@ class PromptEditorWindow(QMainWindow):
     def _create_right_panel(self, main_layout: QHBoxLayout) -> None:
         """Create the right panel with editor controls"""
         right_panel = QFrame()
-        right_panel.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        right_panel.setObjectName("rightPanel")
+        right_panel.setStyleSheet(f"""
+            QFrame#rightPanel {{
+                background-color: {ModernTheme.BG_CARD};
+                border-radius: 16px;
+                border: none;
+            }}
+        """)
         right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(20, 20, 20, 20)
+        right_layout.setSpacing(16)
+        
+        # Add shadow effect
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setXOffset(0)
+        shadow.setYOffset(2)
+        shadow.setColor(QColor(0, 0, 0, 25))
+        right_panel.setGraphicsEffect(shadow)
         
         # Name field with emoji picker
         self._create_name_section(right_layout)
@@ -268,21 +335,73 @@ class PromptEditorWindow(QMainWindow):
     def _create_name_section(self, layout: QVBoxLayout) -> None:
         """Create the name input section"""
         name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Name:"))
+        name_layout.setSpacing(12)
+        
+        name_label = QLabel("Name:")
+        name_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
+        name_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        name_layout.addWidget(name_label)
         
         self.emoji_btn = QToolButton()
         self.emoji_btn.setText("😀")
+        self.emoji_btn.setFixedSize(36, 36)
+        self.emoji_btn.setStyleSheet(f"""
+            QToolButton {{
+                background-color: {ModernTheme.BG_CARD};
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                font-size: 16px;
+            }}
+            QToolButton:hover {{
+                background-color: {ModernTheme.BG_HOVER};
+                border-color: {ModernTheme.PRIMARY};
+            }}
+        """)
         self.emoji_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.emoji_btn.clicked.connect(self._show_emoji_menu)
         name_layout.addWidget(self.emoji_btn)
         
         self.name_entry = QLineEdit()
+        self.name_entry.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {ModernTheme.BG_CARD};
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                padding: 10px 14px;
+                font-size: 13px;
+                color: {ModernTheme.TEXT_PRIMARY};
+            }}
+            QLineEdit:focus {{
+                border-color: {ModernTheme.PRIMARY};
+            }}
+        """)
         name_layout.addWidget(self.name_entry)
         
         # Checkboxes and Temperature
         controls_layout = QVBoxLayout()
         
         self.quick_review_checkbox = QCheckBox("Display as Quick Review")
+        self.quick_review_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {ModernTheme.TEXT_PRIMARY};
+                font-size: 12px;
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 2px solid {ModernTheme.BORDER};
+                background-color: {ModernTheme.BG_CARD};
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {ModernTheme.PRIMARY};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {ModernTheme.PRIMARY};
+                border-color: {ModernTheme.PRIMARY};
+            }}
+        """)
         controls_layout.addWidget(self.quick_review_checkbox)
         
         # Temperature control
@@ -297,8 +416,16 @@ class PromptEditorWindow(QMainWindow):
     def _create_help_section(self, layout: QVBoxLayout) -> None:
         """Create the help section"""
         help_frame = QFrame()
-        help_frame.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        help_frame.setObjectName("helpFrame")
+        help_frame.setStyleSheet(f"""
+            QFrame#helpFrame {{
+                background-color: {ModernTheme.PRIMARY_LIGHT};
+                border: none;
+                border-radius: 12px;
+            }}
+        """)
         help_layout = QVBoxLayout(help_frame)
+        help_layout.setContentsMargins(16, 14, 16, 14)
         
         help_text = """<b>Understanding Prompts:</b>
 Your prompt template acts as the <b>System Instructions</b> for the AI. The text you select in other applications will be provided to the AI as the <b>User Input</b>.
@@ -325,7 +452,10 @@ If your template is empty, a default instruction like "Process the following tex
     
     def _create_template_section(self, layout: QVBoxLayout) -> None:
         """Create the template editor section"""
-        layout.addWidget(QLabel("Prompt Template:"))
+        template_label = QLabel("Prompt Template:")
+        template_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
+        template_label.setStyleSheet(f"color: {ModernTheme.TEXT_PRIMARY};")
+        layout.addWidget(template_label)
         
         self.template_text = QPlainTextEdit()
         self.template_text.setPlaceholderText(
@@ -335,39 +465,133 @@ If your template is empty, a default instruction like "Process the following tex
             "Or use {context} for all knowledge combined"
         )
         self.template_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.template_text.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {ModernTheme.BG_CARD};
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                padding: 12px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                color: {ModernTheme.TEXT_PRIMARY};
+            }}
+            QPlainTextEdit:focus {{
+                border-color: {ModernTheme.PRIMARY};
+            }}
+        """)
         
-        font = QFont("Consolas")
+        font = QFont("Consolas", 11)
         self.template_text.setFont(font)
         layout.addWidget(self.template_text)
     
     def _create_button_section(self, layout: QVBoxLayout) -> None:
         """Create the button section"""
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(12)
         
-        new_btn = QPushButton("New Prompt")
+        # Button base style
+        button_style = f"""
+            QPushButton {{
+                background-color: {ModernTheme.BG_CARD};
+                color: {ModernTheme.TEXT_PRIMARY};
+                border: 1px solid {ModernTheme.BORDER};
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.BG_HOVER};
+                border-color: {ModernTheme.PRIMARY};
+            }}
+            QPushButton:pressed {{
+                background-color: {ModernTheme.PRIMARY_LIGHT};
+            }}
+        """
+        
+        new_btn = QPushButton("+ New Prompt")
+        new_btn.setStyleSheet(button_style)
         new_btn.clicked.connect(self._new_prompt)
         
         save_btn = QPushButton("Save")
+        save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {ModernTheme.PRIMARY};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 24px;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {ModernTheme.PRIMARY_DARK};
+            }}
+            QPushButton:pressed {{
+                background-color: #00695C;
+            }}
+        """)
         save_btn.clicked.connect(self._save_prompt)
         
         delete_btn = QPushButton("Delete")
+        delete_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {ModernTheme.BG_CARD};
+                color: {ModernTheme.ERROR};
+                border: 1px solid {ModernTheme.ERROR};
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: #FFEBEE;
+            }}
+            QPushButton:pressed {{
+                background-color: #FFCDD2;
+            }}
+        """)
         delete_btn.clicked.connect(self._delete_prompt)
         
         button_layout.addWidget(new_btn)
         button_layout.addWidget(save_btn)
         button_layout.addWidget(delete_btn)
+        button_layout.addStretch()
         layout.addLayout(button_layout)
     
     def _create_status_section(self, layout: QVBoxLayout) -> None:
         """Create the status section"""
         status_layout = QHBoxLayout()
+        status_layout.setSpacing(12)
         
         self.status_label = QLabel("")
+        self.status_label.setFont(QFont("Segoe UI", 10))
+        self.status_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY};")
+        
         self.apply_btn = QPushButton("Apply Changes")
+        self.apply_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {ModernTheme.SUCCESS};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 24px;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: #43A047;
+            }}
+            QPushButton:disabled {{
+                background-color: #C8E6C9;
+                color: #FFFFFF;
+            }}
+        """)
         self.apply_btn.clicked.connect(self._apply_changes)
         self.apply_btn.setEnabled(False)
         
         status_layout.addWidget(self.status_label)
+        status_layout.addStretch()
         status_layout.addWidget(self.apply_btn)
         layout.addLayout(status_layout)
     
@@ -524,7 +748,7 @@ If your template is empty, a default instruction like "Process the following tex
         """Mark that there are unsaved changes"""
         self.has_unsaved_changes = True
         self.status_label.setText("Changes need to be applied")
-        self.status_label.setStyleSheet("color: #1976D2")
+        self.status_label.setStyleSheet(f"color: {ModernTheme.PRIMARY}; font-weight: 500;")
         self.apply_btn.setEnabled(True)
     
     def _apply_changes(self) -> None:
@@ -539,7 +763,7 @@ If your template is empty, a default instruction like "Process the following tex
             
             self.has_unsaved_changes = False
             self.status_label.setText("Changes applied and saved successfully")
-            self.status_label.setStyleSheet("color: #4CAF50")
+            self.status_label.setStyleSheet(f"color: {ModernTheme.SUCCESS}; font-weight: 500;")
             self.apply_btn.setEnabled(False)
             
             logger.info(f"Applied changes to {len(self.update_callbacks)} modules with {len(self.prompts_data['prompts'])} prompts")

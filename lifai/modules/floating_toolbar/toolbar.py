@@ -25,13 +25,14 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
     QPushButton, QFrame, QMessageBox, QTextEdit, QApplication, 
     QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, 
-    QAbstractItemView, QListView, QToolButton
+    QAbstractItemView, QListView, QToolButton, QGraphicsOpacityEffect
 )
 from PyQt6.QtCore import (
     Qt, QPoint, QTimer, pyqtSignal, QPropertyAnimation, 
-    QEasingCurve, QRect, QEvent
+    QEasingCurve, QRect, QEvent, pyqtProperty, QSequentialAnimationGroup,
+    QParallelAnimationGroup
 )
-from PyQt6.QtGui import QColor, QPalette, QDrag, QMouseEvent
+from PyQt6.QtGui import QColor, QPalette, QDrag, QMouseEvent, QPainter, QPen, QLinearGradient, QConicalGradient, QBrush
 from pynput import mouse
 
 from lifai.utils.ollama_client import OllamaClient
@@ -43,10 +44,12 @@ logger = get_module_logger(__name__)
 
 # Constants
 TOOLBAR_WIDTH = 200
-TOOLBAR_HEIGHT = 180
+TOOLBAR_HEIGHT = 140  # Reduced height - removed progress indicator
+MINI_BUTTON_SIZE = 44  # Size for minimized button
 TEXT_WINDOW_WIDTH = 500
 QUICK_REVIEW_WIDTH = 400
 ANIMATION_DURATION = 300
+NEON_ANIMATION_INTERVAL = 16  # ~60fps for smooth neon animation
 BREATHING_TIMER_INTERVAL = 16  # ~60fps
 MOUSE_MOVE_THRESHOLD = 10
 LONG_PRESS_DURATION = 0.5
@@ -60,64 +63,99 @@ class ProcessingState(Enum):
 
 @dataclass
 class UIStyles:
-    """Container for UI style constants"""
+    """Container for UI style constants - Modern LocalSend-inspired design"""
+    
+    # Colors - Teal palette like LocalSend
+    PRIMARY = "#009688"
+    PRIMARY_DARK = "#00796B"
+    PRIMARY_LIGHT = "#B2DFDB"
+    BG_CARD = "#FFFFFF"
+    BORDER = "#E8E8E8"
+    TEXT_PRIMARY = "#37474F"
+    TEXT_SECONDARY = "#78909C"
+    
     MAIN_FRAME_STYLE = """
         QFrame#mainFrame {
-            background-color: white;
-            border-radius: 10px;
-            border: 1px solid #e0e0e0;
+            background-color: #FFFFFF;
+            border-radius: 16px;
+            border: none;
         }
     """
     
     COMBO_BOX_STYLE = """
         QComboBox {
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            padding: 5px 10px;
-            background: white;
-            font-size: 14px;
+            border: 1px solid #E8E8E8;
+            border-radius: 8px;
+            padding: 8px 12px;
+            padding-right: 30px;
+            background: #FFFFFF;
+            font-size: 13px;
             font-family: "Segoe UI Emoji", "Segoe UI", sans-serif;
+            color: #37474F;
+            min-height: 18px;
         }
         QComboBox:hover {
-            border: 1px solid #1976D2;
+            border: 1px solid #009688;
+        }
+        QComboBox:focus {
+            border: 1px solid #009688;
         }
         QComboBox::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: center right;
+            width: 24px;
             border: none;
-            width: 20px;
+            background: transparent;
         }
         QComboBox::down-arrow {
-            image: none;
-            border: none;
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 6px solid #78909C;
         }
         QComboBox QAbstractItemView {
-            padding: 8px;
-            font-size: 14px;
+            background-color: #FFFFFF;
+            border: 1px solid #E8E8E8;
+            border-radius: 4px;
+            padding: 4px;
+            font-size: 13px;
             font-family: "Segoe UI Emoji", "Segoe UI", sans-serif;
-            selection-background-color: #E3F2FD;
+            selection-background-color: #B2DFDB;
+            selection-color: #37474F;
+            outline: none;
         }
         QComboBox QAbstractItemView::item {
-            min-height: 24px;
-            padding: 4px 8px;
+            min-height: 28px;
+            padding: 6px 10px;
         }
         QComboBox QAbstractItemView::item:hover {
-            background-color: #E3F2FD;
+            background-color: #F0F0F0;
+        }
+        QComboBox QAbstractItemView::item:selected {
+            background-color: #B2DFDB;
         }
     """
     
     PROCESS_BUTTON_STYLE = """
         QPushButton {
-            background-color: #1976D2;
+            background-color: #009688;
             color: white;
             border: none;
-            border-radius: 5px;
-            padding: 8px;
-            font-weight: bold;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-weight: 600;
+            font-size: 13px;
         }
         QPushButton:hover {
-            background-color: #1565C0;
+            background-color: #00897B;
+        }
+        QPushButton:pressed {
+            background-color: #00796B;
         }
         QPushButton:disabled {
-            background-color: #90CAF9;
+            background-color: #B2DFDB;
+            color: #FFFFFF;
         }
     """
 
@@ -270,6 +308,163 @@ class MouseSelectionHandler:
         self.mouse_down_time = None
         self.mouse_down_pos = None
 
+
+class NeonBorderWidget(QWidget):
+    """
+    A transparent overlay widget that draws an animated neon border effect.
+    Supports two modes:
+    - 'rainbow': Cycles through rainbow colors (for processing)
+    - 'breathing': Green breathing/pulsing effect (for waiting for selection)
+    """
+    
+    def __init__(self, parent=None, border_radius: int = 16, border_width: int = 3):
+        super().__init__(parent)
+        self._border_radius = border_radius
+        self._border_width = border_width
+        self._animation_angle = 0.0
+        self._opacity = 0.0
+        self._breathing_phase = 0.0  # 0 to 2*pi for breathing cycle
+        self._is_animating = False
+        self._mode = 'rainbow'  # 'rainbow' or 'breathing'
+        
+        # Animation timer for the rotating/breathing effect
+        self._animation_timer = QTimer(self)
+        self._animation_timer.timeout.connect(self._update_animation)
+        
+        # Fade animations
+        self._fade_animation = QPropertyAnimation(self, b"opacity", self)
+        self._fade_animation.setDuration(400)
+        self._fade_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        
+        # Make widget transparent to mouse events
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+    
+    @pyqtProperty(float)
+    def opacity(self) -> float:
+        return self._opacity
+    
+    @opacity.setter
+    def opacity(self, value: float):
+        self._opacity = max(0.0, min(1.0, value))
+        self.update()
+    
+    def start_animation(self, mode: str = 'rainbow'):
+        """Start the neon border animation with fade in
+        
+        Args:
+            mode: 'rainbow' for processing, 'breathing' for waiting for selection
+        """
+        self._mode = mode
+        
+        if self._is_animating and self._mode == mode:
+            return
+        
+        self._is_animating = True
+        self._breathing_phase = 0.0
+        self.show()
+        
+        # Fade in
+        self._fade_animation.stop()
+        self._fade_animation.setStartValue(self._opacity)
+        self._fade_animation.setEndValue(1.0)
+        self._fade_animation.start()
+        
+        # Start the rotating/breathing animation
+        self._animation_timer.start(NEON_ANIMATION_INTERVAL)
+    
+    def stop_animation(self):
+        """Stop the neon border animation with fade out"""
+        if not self._is_animating:
+            return
+        
+        self._is_animating = False
+        
+        # Fade out
+        self._fade_animation.stop()
+        self._fade_animation.setStartValue(self._opacity)
+        self._fade_animation.setEndValue(0.0)
+        self._fade_animation.finished.connect(self._on_fade_out_complete)
+        self._fade_animation.start()
+    
+    def _on_fade_out_complete(self):
+        """Called when fade out animation completes"""
+        self._animation_timer.stop()
+        self._fade_animation.finished.disconnect(self._on_fade_out_complete)
+        self.hide()
+    
+    def _update_animation(self):
+        """Update the animation angle or breathing phase"""
+        if self._mode == 'rainbow':
+            self._animation_angle = (self._animation_angle + 3) % 360
+        else:  # breathing mode
+            import math
+            # Slower breathing cycle (~2 seconds per breath)
+            self._breathing_phase = (self._breathing_phase + 0.05) % (2 * math.pi)
+        self.update()
+    
+    def paintEvent(self, event):
+        """Draw the neon border effect"""
+        if self._opacity <= 0:
+            return
+        
+        import math
+        
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        if self._mode == 'rainbow':
+            # Create conical gradient for rainbow effect
+            center_x = self.width() / 2
+            center_y = self.height() / 2
+            gradient = QConicalGradient(center_x, center_y, self._animation_angle)
+            
+            # Rainbow colors - vibrant neon palette
+            gradient.setColorAt(0.0, QColor(255, 0, 128))    # Magenta
+            gradient.setColorAt(0.17, QColor(255, 0, 255))   # Purple
+            gradient.setColorAt(0.33, QColor(0, 128, 255))   # Blue
+            gradient.setColorAt(0.5, QColor(0, 255, 255))    # Cyan
+            gradient.setColorAt(0.67, QColor(0, 255, 128))   # Green
+            gradient.setColorAt(0.83, QColor(255, 255, 0))   # Yellow
+            gradient.setColorAt(1.0, QColor(255, 0, 128))    # Back to Magenta
+            
+            # Create pen with gradient
+            pen = QPen(QBrush(gradient), self._border_width)
+            painter.setOpacity(self._opacity)
+        else:
+            # Breathing green mode - solid green with pulsing opacity
+            breathing_intensity = (math.sin(self._breathing_phase) + 1) / 2  # 0 to 1
+            breathing_opacity = 0.2 + (breathing_intensity * 0.8)  # 0.2 to 1.0 (wider range)
+            
+            # Bright neon green for high visibility
+            green_color = QColor(0, 255, 180)  # Bright cyan-green, more saturated
+            # Increase border width for breathing mode to make it more visible
+            breathing_pen_width = self._border_width + 1
+            pen = QPen(green_color, breathing_pen_width)
+            painter.setOpacity(self._opacity * breathing_opacity)
+        
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        
+        # Draw rounded rectangle border
+        margin = self._border_width / 2 + 1
+        painter.drawRoundedRect(
+            int(margin), int(margin),
+            int(self.width() - 2 * margin), int(self.height() - 2 * margin),
+            self._border_radius, self._border_radius
+        )
+        
+        painter.end()
+    
+    def resizeEvent(self, event):
+        """Ensure the widget covers the parent"""
+        super().resizeEvent(event)
+
+
 class TextDisplayWindow(QMainWindow):
     """Popup window for displaying processed text results with dynamic positioning"""
     
@@ -316,17 +511,19 @@ class TextDisplayWindow(QMainWindow):
         title_layout.addStretch()
         
         close_btn = QPushButton("×")
-        close_btn.setFixedSize(20, 20)
+        close_btn.setFixedSize(24, 24)
         close_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
                 border: none;
-                color: #666;
-                font-size: 16px;
+                color: #78909C;
+                font-size: 18px;
                 font-weight: bold;
+                border-radius: 12px;
             }
             QPushButton:hover {
-                color: #1976D2;
+                color: #009688;
+                background: #F0F0F0;
             }
         """)
         close_btn.clicked.connect(self.hide)
@@ -338,21 +535,21 @@ class TextDisplayWindow(QMainWindow):
         """Apply window styling"""
         self.text_display.setStyleSheet("""
             QTextEdit {
-                background-color: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 5px;
-                padding: 10px;
+                background-color: #FFFFFF;
+                border: 1px solid #E8E8E8;
+                border-radius: 8px;
+                padding: 12px;
                 font-size: 13px;
                 font-family: "Segoe UI", sans-serif;
-                color: #333;
+                color: #37474F;
             }
         """)
         
         self.setStyleSheet("""
             QMainWindow {
-                background: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 10px;
+                background: #FFFFFF;
+                border: none;
+                border-radius: 16px;
             }
         """)
         
@@ -523,14 +720,9 @@ class FloatingToolbarModule(QMainWindow):
         self.styles = UIStyles()
         self.mini_window: Optional['FloatingMiniWindow'] = None
         self.text_window: Optional[TextDisplayWindow] = None
+        self.neon_border: Optional[NeonBorderWidget] = None
         self.quick_review_drawer = None
         self.drawer_animation = None
-        
-        # Animation properties
-        self.breathing_timer = QTimer()
-        self.breathing_value = 255
-        self.breathing_increasing = False
-        self.gradient_position = 0.0
         
         # Mouse handling
         self.mouse_handler = MouseSelectionHandler(self)
@@ -550,6 +742,14 @@ class FloatingToolbarModule(QMainWindow):
         self._create_main_layout()
         self._create_toolbar_content()
         self._apply_main_styling()
+        self._setup_neon_border()
+    
+    def _setup_neon_border(self) -> None:
+        """Setup the neon border effect overlay"""
+        # Create neon border as overlay on the central widget
+        self.neon_border = NeonBorderWidget(self.centralWidget(), border_radius=16, border_width=3)
+        self.neon_border.setGeometry(0, 0, self.main_frame.width() + 10, self.main_frame.height() + 10)
+        self.neon_border.hide()
     
     def _configure_window(self) -> None:
         """Configure window properties"""
@@ -578,7 +778,7 @@ class FloatingToolbarModule(QMainWindow):
         """Create toolbar content"""
         frame_layout = QVBoxLayout(self.main_frame)
         frame_layout.setContentsMargins(10, 10, 10, 10)
-        frame_layout.setSpacing(8)
+        frame_layout.setSpacing(10)
         
         # Title bar
         title_frame = self._create_title_bar()
@@ -587,17 +787,14 @@ class FloatingToolbarModule(QMainWindow):
         # Separator
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet("background-color: #e0e0e0;")
+        separator.setFixedHeight(1)
+        separator.setStyleSheet("background-color: #E8E8E8; border: none;")
         frame_layout.addWidget(separator)
         
         # Prompt combo box
         self.prompt_combo = QComboBox()
         self._update_prompt_combo()
         frame_layout.addWidget(self.prompt_combo)
-        
-        # Progress indicator
-        progress_frame = self._create_progress_frame()
-        frame_layout.addWidget(progress_frame)
         
         # Process button
         self.process_btn = QPushButton("✨ Process Selected Text")
@@ -613,9 +810,10 @@ class FloatingToolbarModule(QMainWindow):
         title_label = QLabel("🤖 LifAi2")
         title_label.setStyleSheet("""
             QLabel {
-                color: #1976D2;
+                color: #009688;
                 font-weight: bold;
                 font-size: 14px;
+                font-family: 'Segoe UI', sans-serif;
             }
         """)
         title_layout.addWidget(title_label)
@@ -626,12 +824,13 @@ class FloatingToolbarModule(QMainWindow):
             QPushButton {
                 background: transparent;
                 border: none;
-                color: #666;
+                color: #78909C;
                 font-size: 14px;
             }
             QPushButton:hover {
-                background: #f0f0f0;
-                border-radius: 4px;
+                background: #F0F0F0;
+                border-radius: 6px;
+                color: #009688;
             }
         """)
         min_btn.clicked.connect(self.minimize_toolbar)
@@ -643,36 +842,6 @@ class FloatingToolbarModule(QMainWindow):
         title_frame.mouseMoveEvent = self.on_drag
         
         return title_frame
-    
-    def _create_progress_frame(self) -> QFrame:
-        """Create progress indicator frame"""
-        progress_frame = QFrame()
-        progress_frame.setStyleSheet("""
-            QFrame {
-                border: 1px solid #e0e0e0;
-                border-radius: 5px;
-                background: #f5f5f5;
-                min-height: 30px;
-            }
-        """)
-        
-        progress_layout = QHBoxLayout(progress_frame)
-        progress_layout.setContentsMargins(5, 2, 5, 2)
-        
-        self.progress_label = QLabel("🚀 Ready")
-        self.progress_label.setStyleSheet("""
-            QLabel {
-                color: #1976D2;
-                padding: 5px;
-                min-width: 120px;
-                background: #f5f5f5;
-                border-radius: 5px;
-            }
-        """)
-        self.progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        progress_layout.addWidget(self.progress_label)
-        
-        return progress_frame
     
     def _apply_main_styling(self) -> None:
         """Apply main styling to components"""
@@ -690,8 +859,7 @@ class FloatingToolbarModule(QMainWindow):
     
     def _setup_animations(self) -> None:
         """Setup animation timers and effects"""
-        self.breathing_timer.timeout.connect(self._update_breathing)
-        self.breathing_timer.start(BREATHING_TIMER_INTERVAL)
+        # Connect progress signal to neon border animation
         self.progress_updated.connect(self._update_progress)
     
     def _connect_signals(self) -> None:
@@ -712,6 +880,13 @@ class FloatingToolbarModule(QMainWindow):
         self.process_btn.setText("Select text now...")
         self.process_btn.setEnabled(False)
         self.waiting_for_selection = True
+        self.processing_state = ProcessingState.WAITING_SELECTION
+        
+        # Show breathing green animation while waiting for selection
+        if self.neon_border:
+            self.neon_border.start_animation('breathing')
+        if self.mini_window and self.mini_window.isVisible():
+            self.mini_window.start_neon_animation('breathing')
         
         # Start selection in separate thread
         threading.Thread(target=self._wait_for_selection, daemon=True).start()
@@ -861,82 +1036,27 @@ Transform the above text according to your system instructions. Output ONLY the 
         except Exception as e:
             logger.error(f"Error showing error dialog: {e}")
     
-    def _update_breathing(self) -> None:
-        """Update breathing animation effect"""
-        if self.processing_state != ProcessingState.PROCESSING:
-            return
-            
-        # Update gradient position for rainbow effect
-        self.gradient_position = (self.gradient_position + 0.005) % 1.0
-        
-        # Calculate rainbow colors
-        hue = self.gradient_position * 360
-        r, g, b = self.color_manager.hsl_to_rgb(hue, 1.0, 0.5)
-        
-        # Update breathing value
-        if self.breathing_increasing:
-            self.breathing_value = min(255, self.breathing_value + 0.5)
-            if self.breathing_value >= 255:
-                self.breathing_increasing = False
-        else:
-            self.breathing_value = max(100, self.breathing_value - 0.5)
-            if self.breathing_value <= 100:
-                self.breathing_increasing = True
-        
-        # Apply brightness and update style
-        brightness = self.breathing_value / 255
-        r, g, b = self.color_manager.adjust_brightness(r, g, b, brightness)
-        
-        gradient_style = f"""
-            QLabel {{
-                color: white;
-                padding: 5px;
-                min-width: 120px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgb({r}, {g}, {b}),
-                    stop:1 rgb({r//2}, {g//2}, {b//2}));
-                border-radius: 5px;
-                font-weight: bold;
-            }}
-        """
-        self.progress_label.setStyleSheet(gradient_style)
-    
     def _update_progress(self, progress: int) -> None:
-        """Update progress indicator"""
-        if progress == 0:  # Starting
-            self.progress_label.setText("🔄 Processing")
+        """Update progress indicator - controls neon border animation"""
+        if progress == 0:  # Starting processing - show rainbow neon animation
             self.processing_state = ProcessingState.PROCESSING
-        elif progress == 100:  # Complete
-            self.progress_label.setText("✨ Complete!")
+            if self.neon_border:
+                self.neon_border.start_animation('rainbow')
+            # Also notify mini window if it exists
+            if self.mini_window and self.mini_window.isVisible():
+                self.mini_window.start_neon_animation('rainbow')
+        elif progress == 100:  # Complete - stop neon animation
             self.processing_state = ProcessingState.COMPLETE
-            self.progress_label.setStyleSheet("""
-                QLabel {
-                    color: #4CAF50;
-                    padding: 5px;
-                    min-width: 120px;
-                    background: qlineargradient(
-                        x1: 0, y1: 0, x2: 1, y2: 0,
-                        stop: 0 #E8F5E9,
-                        stop: 0.5 #C8E6C9,
-                        stop: 1 #E8F5E9
-                    );
-                    border-radius: 5px;
-                    font-weight: bold;
-                }
-            """)
+            if self.neon_border:
+                self.neon_border.stop_animation()
+            if self.mini_window and self.mini_window.isVisible():
+                self.mini_window.stop_neon_animation()
         else:  # Reset to ready
-            self.progress_label.setText("🚀 Ready")
             self.processing_state = ProcessingState.READY
-            self.progress_label.setStyleSheet("""
-                QLabel {
-                    color: #1976D2;
-                    padding: 5px;
-                    min-width: 120px;
-                    background: #f5f5f5;
-                    border-radius: 5px;
-                    font-weight: bold;
-                }
-            """)
+            if self.neon_border:
+                self.neon_border.stop_animation()
+            if self.mini_window and self.mini_window.isVisible():
+                self.mini_window.stop_neon_animation()
     
     def _update_prompt_combo(self) -> None:
         """Update prompt combo box"""
@@ -975,11 +1095,22 @@ Transform the above text according to your system instructions. Output ONLY the 
         if self.quick_review_drawer and self.quick_review_drawer.isVisible():
             self.quick_review_drawer.hide()
         
-        self.hide()
+        # Stop neon on main toolbar
+        if self.neon_border:
+            self.neon_border.stop_animation()
+        
+        # Use QMainWindow.hide() directly to avoid our override which closes mini_window
+        QMainWindow.hide(self)
         if not self.mini_window:
             self.mini_window = FloatingMiniWindow(self)
         self.mini_window.move(self.pos())
         self.mini_window.show()
+        
+        # Transfer neon animation state to mini window based on current state
+        if self.processing_state == ProcessingState.PROCESSING:
+            self.mini_window.start_neon_animation('rainbow')
+        elif self.processing_state == ProcessingState.WAITING_SELECTION:
+            self.mini_window.start_neon_animation('breathing')
     
     def restore_toolbar(self) -> None:
         """Restore toolbar from mini window"""
@@ -987,7 +1118,21 @@ Transform the above text according to your system instructions. Output ONLY the 
             self.move(self.mini_window.pos())
             self.mini_window.hide()
         self.show()
+        
+        # Transfer neon animation state based on current state
+        if self.neon_border:
+            if self.processing_state == ProcessingState.PROCESSING:
+                self.neon_border.start_animation('rainbow')
+            elif self.processing_state == ProcessingState.WAITING_SELECTION:
+                self.neon_border.start_animation('breathing')
     
+    def hide(self) -> None:
+        """Override hide to also hide mini window when toolbar is toggled off"""
+        # Also hide/close the mini window if it exists
+        if self.mini_window and self.mini_window.isVisible():
+            self.mini_window.hide()
+        super().hide()
+
     def start_drag(self, event) -> None:
         """Start dragging the window"""
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1019,11 +1164,21 @@ Transform the above text according to your system instructions. Output ONLY the 
         if hasattr(self, 'text_window') and self.text_window.isVisible():
             self.text_window.updatePosition()
     
+    def resizeEvent(self, event) -> None:
+        """Handle toolbar resize - update neon border size"""
+        super().resizeEvent(event)
+        if self.neon_border:
+            self.neon_border.setGeometry(0, 0, self.centralWidget().width(), self.centralWidget().height())
+    
     def closeEvent(self, event) -> None:
         """Handle window close event"""
         try:
             if hasattr(self, 'text_window'):
                 self.text_window.close()
+            if hasattr(self, 'mini_window') and self.mini_window:
+                self.mini_window.close()
+            if self.neon_border:
+                self.neon_border.stop_animation()
             self.waiting_for_selection = False
             self.processing_state = ProcessingState.READY
             super().closeEvent(event)
@@ -1031,16 +1186,22 @@ Transform the above text according to your system instructions. Output ONLY the 
             logger.error(f"Error in close event: {e}")
             event.accept()
 
+
 class FloatingMiniWindow(QMainWindow):
-    """Minimized floating window"""
+    """Minimized floating window - just the process button with neon border effect"""
     
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
         self.drag_position: Optional[QPoint] = None
+        self.neon_border: Optional[NeonBorderWidget] = None
+        self._drag_started: bool = False
+        self._press_pos: Optional[QPoint] = None
         
         self._setup_window()
         self._create_ui()
+        # Setup neon border after window is shown (geometry needs to be established)
+        QTimer.singleShot(50, self._setup_neon_border)
     
     def _setup_window(self) -> None:
         """Setup window properties"""
@@ -1048,24 +1209,140 @@ class FloatingMiniWindow(QMainWindow):
             Qt.WindowType.WindowStaysOnTopHint | 
             Qt.WindowType.FramelessWindowHint
         )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
+        # Fixed size for the mini window including padding for neon border
+        self.setFixedSize(MINI_BUTTON_SIZE + 10, MINI_BUTTON_SIZE + 10)
     
     def _create_ui(self) -> None:
-        """Create mini window UI"""
+        """Create mini window UI - just the process button"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(0)
         
-        btn = QPushButton("✨")
-        btn.setFixedWidth(30)
-        btn.clicked.connect(self.parent.restore_toolbar)
-        layout.addWidget(btn)
+        # Main button container (acts as the visible frame)
+        self.button_frame = QFrame()
+        self.button_frame.setObjectName("miniButtonFrame")
+        self.button_frame.setFixedSize(MINI_BUTTON_SIZE, MINI_BUTTON_SIZE)
+        self.button_frame.setStyleSheet("""
+            QFrame#miniButtonFrame {
+                background-color: #FFFFFF;
+                border-radius: 12px;
+                border: none;
+            }
+        """)
+        
+        button_layout = QVBoxLayout(self.button_frame)
+        button_layout.setContentsMargins(2, 2, 2, 2)
+        button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Process button - clicking this starts processing
+        self.process_btn = QPushButton("✨")
+        self.process_btn.setFixedSize(MINI_BUTTON_SIZE - 4, MINI_BUTTON_SIZE - 4)
+        self.process_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.process_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #009688;
+                color: white;
+                border: none;
+                border-radius: 10px;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #00796B;
+            }
+            QPushButton:pressed {
+                background-color: #00695C;
+            }
+        """)
+        self.process_btn.clicked.connect(self._on_button_click)
+        # Install event filter to allow dragging from the button
+        self.process_btn.installEventFilter(self)
+        button_layout.addWidget(self.process_btn)
+        
+        layout.addWidget(self.button_frame)
+        
+        # Add shadow effect
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setXOffset(0)
+        shadow.setYOffset(2)
+        shadow.setColor(QColor(0, 0, 0, 40))
+        self.button_frame.setGraphicsEffect(shadow)
+    
+    def eventFilter(self, obj, event) -> bool:
+        """Event filter to handle dragging from the button"""
+        if obj == self.process_btn:
+            if event.type() == event.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                    self._drag_started = False
+                    self._press_pos = event.globalPosition().toPoint()
+                elif event.button() == Qt.MouseButton.RightButton:
+                    self.parent.restore_toolbar()
+                    return True
+            elif event.type() == event.Type.MouseMove:
+                if event.buttons() == Qt.MouseButton.LeftButton and self.drag_position:
+                    # Check if we've moved enough to start dragging
+                    move_distance = (event.globalPosition().toPoint() - self._press_pos).manhattanLength()
+                    if move_distance > 5:  # Threshold to start dragging
+                        self._drag_started = True
+                        self.move(event.globalPosition().toPoint() - self.drag_position)
+                        return True  # Consume event when dragging
+            elif event.type() == event.Type.MouseButtonRelease:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    # Only allow click if we didn't drag
+                    if self._drag_started:
+                        self._drag_started = False
+                        return True  # Consume event - was dragging, not clicking
+                    self.drag_position = None
+            elif event.type() == event.Type.MouseButtonDblClick:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self.parent.restore_toolbar()
+                    return True
+        return super().eventFilter(obj, event)
+    
+    def _setup_neon_border(self) -> None:
+        """Setup the neon border effect overlay"""
+        # Create neon border sized to cover the entire mini window
+        self.neon_border = NeonBorderWidget(self.centralWidget(), border_radius=14, border_width=2)
+        # Position to cover the button area with proper margins
+        self.neon_border.setGeometry(2, 2, MINI_BUTTON_SIZE + 6, MINI_BUTTON_SIZE + 6)
+        self.neon_border.hide()
+        self.neon_border.raise_()  # Ensure it's on top
+    
+    def _on_button_click(self) -> None:
+        """Handle button click - start processing"""
+        if self.parent.processing_state not in [ProcessingState.PROCESSING, ProcessingState.WAITING_SELECTION]:
+            # Start processing directly from mini mode
+            self.parent.start_processing()
+    
+    def start_neon_animation(self, mode: str = 'rainbow') -> None:
+        """Start the neon border animation
+        
+        Args:
+            mode: 'rainbow' for processing, 'breathing' for waiting for selection
+        """
+        if self.neon_border:
+            self.neon_border.raise_()  # Ensure it's visible on top
+            self.neon_border.start_animation(mode)
+    
+    def stop_neon_animation(self) -> None:
+        """Stop the neon border animation"""
+        if self.neon_border:
+            self.neon_border.stop_animation()
     
     def mousePressEvent(self, event) -> None:
         """Handle mouse press for dragging"""
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Right-click restores the full toolbar
+            self.parent.restore_toolbar()
             event.accept()
     
     def mouseMoveEvent(self, event) -> None:
@@ -1073,3 +1350,36 @@ class FloatingMiniWindow(QMainWindow):
         if event.buttons() == Qt.MouseButton.LeftButton and self.drag_position:
             self.move(event.globalPosition().toPoint() - self.drag_position)
             event.accept()
+    
+    def mouseDoubleClickEvent(self, event) -> None:
+        """Double-click restores the full toolbar"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.parent.restore_toolbar()
+            event.accept()
+    
+    def contextMenuEvent(self, event) -> None:
+        """Show context menu on right-click"""
+        from PyQt6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #FFFFFF;
+                border: 1px solid #E8E8E8;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 8px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #E0F2F1;
+                color: #009688;
+            }
+        """)
+        
+        restore_action = menu.addAction("🔄 Expand Toolbar")
+        restore_action.triggered.connect(self.parent.restore_toolbar)
+        
+        menu.exec(event.globalPos())
