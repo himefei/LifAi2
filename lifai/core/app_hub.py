@@ -858,10 +858,24 @@ class LifAi2Hub(QMainWindow):
         
         dialog.exec()
 
+def signal_ready():
+    """Signal to splash screen that app is ready"""
+    import tempfile
+    signal_file = os.path.join(tempfile.gettempdir(), "lifai2_ready.signal")
+    try:
+        with open(signal_file, 'w') as f:
+            f.write("ready")
+    except:
+        pass
+
 def main():
     app = QApplication(sys.argv)
     window = LifAi2Hub()
     window.show()
+    
+    # Signal that app is ready (for splash screen)
+    signal_ready()
+    
     sys.exit(app.exec())
 
 if __name__ == "__main__":

@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """
 LifAi2 Splash Screen - Shows a modern loading animation while the app starts
+Functional splash that waits for the main app to signal readiness
 """
 import sys
 import os
 import subprocess
+import tempfile
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty
 from PyQt6.QtGui import QColor, QPainter, QFont, QLinearGradient, QPen, QBrush
+
+# Signal file for IPC
+READY_SIGNAL_FILE = os.path.join(tempfile.gettempdir(), "lifai2_ready.signal")
 
 class LoadingDot(QWidget):
     """A single animated dot"""
@@ -176,18 +181,44 @@ class SplashScreen(QWidget):
                 self.height() - offset * 2,
                 16, 16
             )
+    
+    def update_status(self, text):
+        """Update the loading status text"""
+        self.loading_label.setText(text)
 
 
 def main():
     # Get script directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
+    # Clean up any old signal file
+    if os.path.exists(READY_SIGNAL_FILE):
+        try:
+            os.remove(READY_SIGNAL_FILE)
+        except:
+            pass
+    
     # Create splash app
     app = QApplication(sys.argv)
     splash = SplashScreen()
     splash.show()
     
-    # Launch the main app after a brief delay
+    # Track loading stages
+    stages = ["Initializing...", "Loading modules...", "Starting UI..."]
+    stage_index = [0]
+    
+    def update_loading_stage():
+        """Cycle through loading messages for visual feedback"""
+        if stage_index[0] < len(stages):
+            splash.update_status(stages[stage_index[0]])
+            stage_index[0] += 1
+    
+    # Update loading text periodically
+    stage_timer = QTimer()
+    stage_timer.timeout.connect(update_loading_stage)
+    stage_timer.start(800)
+    
+    # Launch the main app
     def launch_main_app():
         pythonw = os.path.join(script_dir, ".venv", "Scripts", "pythonw.exe")
         run_script = os.path.join(script_dir, "run.pyw")
@@ -199,11 +230,29 @@ def main():
             subprocess.Popen(["pythonw", run_script],
                            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
     
-    # Launch main app after 500ms (let splash be visible)
-    QTimer.singleShot(500, launch_main_app)
+    # Check if main app is ready
+    def check_ready():
+        if os.path.exists(READY_SIGNAL_FILE):
+            try:
+                os.remove(READY_SIGNAL_FILE)
+            except:
+                pass
+            stage_timer.stop()
+            splash.update_status("Ready!")
+            # Brief delay to show "Ready!" then close
+            QTimer.singleShot(300, app.quit)
+            return
+        # Keep checking
+        QTimer.singleShot(100, check_ready)
     
-    # Close splash after 3 seconds (main app should be loading by then)
-    QTimer.singleShot(3000, app.quit)
+    # Launch main app after 300ms
+    QTimer.singleShot(300, launch_main_app)
+    
+    # Start checking for ready signal after 500ms
+    QTimer.singleShot(500, check_ready)
+    
+    # Timeout after 15 seconds (failsafe)
+    QTimer.singleShot(15000, app.quit)
     
     sys.exit(app.exec())
 
