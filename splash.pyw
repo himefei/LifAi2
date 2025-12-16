@@ -7,9 +7,9 @@ import sys
 import os
 import subprocess
 import tempfile
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QGraphicsDropShadowEffect
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty
-from PyQt6.QtGui import QColor, QPainter, QFont, QLinearGradient, QPen, QBrush
+from PyQt6.QtGui import QColor, QPainter, QFont
 
 # Signal file for IPC
 READY_SIGNAL_FILE = os.path.join(tempfile.gettempdir(), "lifai2_ready.signal")
@@ -50,7 +50,7 @@ class SplashScreen(QWidget):
             Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(280, 180)
+        self.setFixedSize(310, 210)  # Extra space for shadow
         
         # Center on screen
         screen = QApplication.primaryScreen().geometry()
@@ -64,7 +64,7 @@ class SplashScreen(QWidget):
     
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(15, 15, 15, 15)  # Margins for shadow visibility
         
         # Main container
         self.container = QWidget()
@@ -74,6 +74,14 @@ class SplashScreen(QWidget):
                 border-radius: 16px;
             }
         """)
+        
+        # Add drop shadow effect (consistent with rest of GUI)
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 40))  # Slightly more visible for splash
+        shadow.setOffset(0, 4)
+        self.container.setGraphicsEffect(shadow)
+        
         layout.addWidget(self.container)
         
         container_layout = QVBoxLayout(self.container)
@@ -162,25 +170,6 @@ class SplashScreen(QWidget):
         # Start animations with staggered delays
         for i, anim in enumerate(self.animations):
             QTimer.singleShot(i * 200, anim.start)
-    
-    def paintEvent(self, event):
-        """Draw shadow effect"""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Draw subtle shadow
-        for i in range(5):
-            opacity = 0.02 * (5 - i)
-            painter.setOpacity(opacity)
-            painter.setBrush(QColor(0, 0, 0))
-            painter.setPen(Qt.PenStyle.NoPen)
-            offset = i * 2
-            painter.drawRoundedRect(
-                offset, offset,
-                self.width() - offset * 2,
-                self.height() - offset * 2,
-                16, 16
-            )
     
     def update_status(self, text):
         """Update the loading status text"""
