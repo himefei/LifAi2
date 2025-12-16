@@ -28,7 +28,7 @@ from PyQt6.QtGui import (
 
 from lifai.utils.logger_utils import get_module_logger
 from lifai.utils.clipboard_utils import ClipboardManager
-from lifai.core.modern_ui import ModernTheme
+from lifai.core.modern_ui import ModernTheme, ToggleSwitch
 
 logger = get_module_logger(__name__)
 
@@ -137,18 +137,21 @@ class ChatSession:
             self.created_at = datetime.now()
 
 class ChatWorker(QThread):
-    """Worker thread for AI chat completion"""
+    """Worker thread for AI chat completion with streaming support"""
     
     response_received = pyqtSignal(str, str)  # response, session_id
+    chunk_received = pyqtSignal(str, str)  # chunk, session_id (for streaming)
+    stream_finished = pyqtSignal(str, str)  # full_response, session_id
     error_occurred = pyqtSignal(str)
     thinking_update = pyqtSignal(str)  # For reasoning models
     
-    def __init__(self, ai_client, model: str, messages: List[Dict], session_id: str):
+    def __init__(self, ai_client, model: str, messages: List[Dict], session_id: str, stream: bool = True):
         super().__init__()
         self.ai_client = ai_client
         self.model = model
         self.messages = messages
         self.session_id = session_id
+        self.stream = stream
         self._is_cancelled = False
     
     def cancel(self):
@@ -161,6 +164,100 @@ class ChatWorker(QThread):
             if self._is_cancelled:
                 return
             
+            if self.stream:
+                self._run_streaming()
+            else:
+                self._run_non_streaming()
+                
+        except Exception as e:
+            logger.error(f"Error in chat completion: {e}")
+            self.error_occurred.emit(str(e))
+    
+    def _run_streaming(self):
+        """Run streaming chat completion"""
+        import httpx
+        import json
+        
+        try:
+            # Determine the endpoint based on client type
+            if hasattr(self.ai_client, 'native_base'):
+                # LM Studio
+                if self.ai_client.use_native_api:
+                    endpoint = f"{self.ai_client.native_base}/chat/completions"
+                else:
+                    endpoint = f"{self.ai_client.openai_base}/chat/completions"
+            elif hasattr(self.ai_client, 'base_url'):
+                # Ollama
+                endpoint = f"{self.ai_client.base_url}/api/chat"
+            else:
+                # Fallback to non-streaming
+                self._run_non_streaming()
+                return
+            
+            # Build request data
+            data = {
+                "messages": self.messages,
+                "model": self.model,
+                "stream": True
+            }
+            
+            full_response = ""
+            
+            # Use synchronous httpx for streaming in thread
+            with httpx.Client(timeout=180) as client:
+                with client.stream('POST', endpoint, json=data, headers={"Content-Type": "application/json"}) as response:
+                    response.raise_for_status()
+                    
+                    for line in response.iter_lines():
+                        if self._is_cancelled:
+                            return
+                        
+                        if not line:
+                            continue
+                        
+                        # Handle SSE format (data: {...})
+                        if line.startswith('data: '):
+                            json_str = line[6:]
+                            if json_str.strip() == "[DONE]":
+                                break
+                        else:
+                            json_str = line
+                        
+                        try:
+                            chunk = json.loads(json_str)
+                            content = ""
+                            
+                            # Handle OpenAI/LM Studio format
+                            if 'choices' in chunk and chunk['choices']:
+                                choice = chunk['choices'][0]
+                                if 'delta' in choice and choice['delta']:
+                                    content = choice['delta'].get('content', '')
+                                elif 'message' in choice and choice['message']:
+                                    content = choice['message'].get('content', '')
+                            # Handle Ollama format
+                            elif 'message' in chunk and chunk['message']:
+                                content = chunk['message'].get('content', '')
+                            elif 'response' in chunk:
+                                content = chunk.get('response', '')
+                            
+                            if content:
+                                full_response += content
+                                self.chunk_received.emit(content, self.session_id)
+                                
+                        except json.JSONDecodeError:
+                            continue
+            
+            if not self._is_cancelled:
+                self.stream_finished.emit(full_response, self.session_id)
+                
+        except Exception as e:
+            logger.error(f"Error in streaming chat completion: {e}")
+            # Fall back to non-streaming on error
+            self._run_non_streaming()
+    
+    def _run_non_streaming(self):
+        """Run non-streaming chat completion"""
+        try:
             # Check if we have an LM Studio client
             if hasattr(self.ai_client, 'chat_completion_sync'):
                 # Use sync method for LM Studio
@@ -202,83 +299,107 @@ class ChatWorker(QThread):
             self.response_received.emit(content, self.session_id)
             
         except Exception as e:
-            logger.error(f"Error in chat completion: {e}")
+            logger.error(f"Error in non-streaming chat completion: {e}")
             self.error_occurred.emit(str(e))
 
+class TypingDot(QWidget):
+    """A single animated dot for typing indicator"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._opacity = 0.3
+        self.setFixedSize(8, 8)
+    
+    @property
+    def opacity(self):
+        return self._opacity
+    
+    @opacity.setter
+    def opacity(self, value):
+        self._opacity = value
+        self.update()
+    
+    def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setOpacity(self._opacity)
+        painter.setBrush(QColor(158, 158, 158))  # Gray color
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(0, 0, 8, 8)
+
+
 class TypingAnimationWidget(QFrame):
-    """Widget that shows AI is typing with animated dots"""
+    """Simple 3-dot typing indicator - ChatGPT style"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.dots_count = 0
+        self.dot_index = 0
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_animation)
         self.setup_ui()
     
     def setup_ui(self):
         """Setup the typing animation UI"""
-        # Main container with proper alignment (left side for AI)
-        container_layout = QHBoxLayout(self)
-        container_layout.setContentsMargins(10, 5, 10, 5)
+        self.setStyleSheet("background: transparent; border: none;")
         
-        # Message content frame
-        message_frame = QFrame()
-        message_layout = QVBoxLayout(message_frame)
-        message_layout.setContentsMargins(10, 8, 10, 8)
+        # Main layout - left aligned like assistant messages
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(16, 8, 16, 8)
+        main_layout.setSpacing(12)
         
-        # AI label
-        header_layout = QHBoxLayout()
-        role_label = QLabel("Assistant")
-        role_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        role_label.setStyleSheet("color: #009688;")
-        header_layout.addWidget(role_label)
-        header_layout.addStretch()
-        message_layout.addLayout(header_layout)
-        
-        # Typing indicator
-        self.typing_label = QLabel("AI is thinking")
-        self.typing_label.setStyleSheet("""
-            color: #78909C;
-            font-family: 'Segoe UI';
-            font-size: 14px;
-            font-style: italic;
-        """)
-        message_layout.addWidget(self.typing_label)
-        
-        # Set maximum width for consistency
-        message_frame.setMaximumWidth(500)
-        
-        # Style similar to AI messages
-        message_frame.setStyleSheet("""
+        # Bubble container
+        bubble = QFrame()
+        bubble.setFixedSize(60, 40)
+        bubble.setStyleSheet("""
             QFrame {
-                background-color: #F5F7F8;
-                border-radius: 16px;
-                margin: 2px;
-                border: 1px solid #E8E8E8;
+                background-color: #F0F0F0;
+                border-radius: 18px;
+                border-bottom-left-radius: 4px;
             }
         """)
         
-        # AI messages on the left
-        container_layout.addWidget(message_frame)
-        container_layout.addStretch()
+        # Dots layout inside bubble
+        dots_layout = QHBoxLayout(bubble)
+        dots_layout.setContentsMargins(16, 0, 16, 0)
+        dots_layout.setSpacing(4)
+        dots_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # Create 3 dots
+        self.dots = []
+        for i in range(3):
+            dot = TypingDot()
+            self.dots.append(dot)
+            dots_layout.addWidget(dot)
+        
+        main_layout.addWidget(bubble)
+        main_layout.addStretch(1)
     
     def start_animation(self):
         """Start the typing animation"""
-        self.timer.start(500)  # Update every 500ms
+        self.dot_index = 0
+        self.timer.start(300)  # Update every 300ms
     
     def stop_animation(self):
         """Stop the typing animation"""
         self.timer.stop()
+        # Reset all dots
+        for dot in self.dots:
+            dot.opacity = 0.3
         self.hide()
     
     def update_animation(self):
-        """Update the typing animation"""
-        self.dots_count = (self.dots_count + 1) % 4
-        dots = "." * self.dots_count
-        self.typing_label.setText(f"AI is thinking{dots}")
+        """Update the typing animation - bounce effect"""
+        # Reset all dots to dim
+        for dot in self.dots:
+            dot.opacity = 0.3
+        
+        # Highlight current dot
+        if self.dots:
+            self.dots[self.dot_index].opacity = 1.0
+            self.dot_index = (self.dot_index + 1) % len(self.dots)
 
 class MessageWidget(QFrame):
-    """Widget for displaying a single chat message"""
+    """Widget for displaying a single chat message - ChatGPT style"""
     
     def __init__(self, message: ChatMessage, parent=None):
         super().__init__(parent)
@@ -286,116 +407,99 @@ class MessageWidget(QFrame):
         self.setup_ui()
     
     def setup_ui(self):
-        """Setup the message UI"""
-        # Main container with proper alignment
-        container_layout = QHBoxLayout(self)
-        container_layout.setContentsMargins(10, 5, 10, 5)
+        """Setup the message UI - ChatGPT style layout"""
+        self.setStyleSheet("background: transparent; border: none;")
         
-        # Message content frame
-        message_frame = QFrame()
-        message_layout = QVBoxLayout(message_frame)
-        message_layout.setContentsMargins(10, 8, 10, 8)
+        # Main horizontal layout
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(16, 8, 16, 8)
+        main_layout.setSpacing(12)
         
-        # Message header
-        header_layout = QHBoxLayout()
+        is_user = self.message.role == "user"
         
-        # Role label
-        role_label = QLabel(self.message.role.title())
-        role_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        if is_user:
+            # User messages: push to right
+            main_layout.addStretch(1)
         
-        if self.message.role == "user":
-            role_label.setStyleSheet("color: #00796B;")  # Teal dark
-        elif self.message.role == "assistant":
-            role_label.setStyleSheet("color: #009688;")  # Teal primary
-        else:
-            role_label.setStyleSheet("color: #78909C;")
+        # Message bubble
+        bubble = QFrame()
+        bubble.setMaximumWidth(600)
+        bubble_layout = QVBoxLayout(bubble)
+        bubble_layout.setContentsMargins(16, 12, 16, 12)
+        bubble_layout.setSpacing(8)
         
-        # Timestamp
-        timestamp_label = QLabel(self.message.timestamp.strftime("%H:%M"))
-        timestamp_label.setStyleSheet("color: #B0BEC5; font-size: 11px;")
+        # Message content - using QLabel for cleaner rendering
+        self.content_label = QLabel()
+        self.content_label.setText(self.message.content)
+        self.content_label.setWordWrap(True)
+        self.content_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | 
+            Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.content_label.setFont(QFont("Segoe UI", 10))
         
-        if self.message.role == "user":
-            header_layout.addStretch()
-            header_layout.addWidget(timestamp_label)
-            header_layout.addWidget(role_label)
-        else:
-            header_layout.addWidget(role_label)
-            header_layout.addWidget(timestamp_label)
-            header_layout.addStretch()
-        
-        message_layout.addLayout(header_layout)
-        
-        # Message content
-        content_text = QTextEdit()
-        content_text.setPlainText(self.message.content)
-        content_text.setReadOnly(True)
-        content_text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        content_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        
-        # Auto-adjust height based on content - no height restrictions
-        content_text.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)  # Enable word wrapping
-        
-        # Calculate proper height for content
-        document = content_text.document()
-        document.setTextWidth(content_text.viewport().width())
-        height = document.size().height() + 20
-        content_text.setFixedHeight(max(30, int(height)))
-        
-        # Set maximum width but allow more space (70% of chat area)
-        message_frame.setMaximumWidth(700)
-        message_frame.setMinimumWidth(200)
-        
-        # Style and position based on role
-        if self.message.role == "user":
-            message_frame.setStyleSheet("""
+        if is_user:
+            # User bubble - teal background, right aligned
+            bubble.setStyleSheet("""
                 QFrame {
-                    background-color: #E0F2F1;
-                    border-radius: 16px;
-                    margin: 2px;
-                    border: 1px solid #B2DFDB;
-                }
-                QTextEdit {
-                    background-color: transparent;
-                    border: none;
-                    font-family: 'Segoe UI';
-                    font-size: 14px;
-                    color: #00695C;
+                    background-color: #009688;
+                    border-radius: 18px;
+                    border-bottom-right-radius: 4px;
                 }
             """)
-            role_label.setStyleSheet("color: #00796B;")
-            timestamp_label.setStyleSheet("color: #80CBC4; font-size: 11px;")
-            
-            # User messages on the right with some margin
-            container_layout.addStretch(2)  # More stretch on left
-            container_layout.addWidget(message_frame)
-            container_layout.addStretch(1)  # Less stretch on right
-        else:
-            message_frame.setStyleSheet("""
-                QFrame {
-                    background-color: #F5F7F8;
-                    border-radius: 16px;
-                    margin: 2px;
-                    border: 1px solid #E8E8E8;
-                }
-                QTextEdit {
-                    background-color: transparent;
-                    border: none;
-                    font-family: 'Segoe UI';
-                    font-size: 14px;
-                    color: #37474F;
+            self.content_label.setStyleSheet("""
+                QLabel {
+                    color: #FFFFFF;
+                    background: transparent;
+                    padding: 0;
                 }
             """)
-            
-            # AI messages on the left with some margin
-            container_layout.addStretch(1)  # Less stretch on left
-            container_layout.addWidget(message_frame)
-            container_layout.addStretch(2)  # More stretch on right
+        else:
+            # Assistant bubble - light gray background, left aligned
+            bubble.setStyleSheet("""
+                QFrame {
+                    background-color: #F0F0F0;
+                    border-radius: 18px;
+                    border-bottom-left-radius: 4px;
+                }
+            """)
+            self.content_label.setStyleSheet("""
+                QLabel {
+                    color: #1A1A1A;
+                    background: transparent;
+                    padding: 0;
+                }
+            """)
         
-        message_layout.addWidget(content_text)
+        bubble_layout.addWidget(self.content_label)
         
         # Images if present
         if self.message.images:
-            self.add_images(message_layout)
+            self.add_images(bubble_layout)
+        
+        # Timestamp below the bubble
+        timestamp_label = QLabel(self.message.timestamp.strftime("%H:%M"))
+        timestamp_label.setStyleSheet("color: #9E9E9E; font-size: 10px; background: transparent;")
+        
+        if is_user:
+            timestamp_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        else:
+            timestamp_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        
+        # Wrapper to hold bubble and timestamp
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background: transparent;")
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(4)
+        wrapper_layout.addWidget(bubble)
+        wrapper_layout.addWidget(timestamp_label)
+        
+        main_layout.addWidget(wrapper)
+        
+        if not is_user:
+            # Assistant messages: push to left
+            main_layout.addStretch(1)
     
     def add_images(self, layout):
         """Add image displays to the message"""
@@ -408,11 +512,20 @@ class MessageWidget(QFrame):
                 
                 # Scale image
                 if not pixmap.isNull():
-                    scaled_pixmap = pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    scaled_pixmap = pixmap.scaled(
+                        200, 200, 
+                        Qt.AspectRatioMode.KeepAspectRatio, 
+                        Qt.TransformationMode.SmoothTransformation
+                    )
                     
                     image_label = QLabel()
                     image_label.setPixmap(scaled_pixmap)
-                    image_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                    image_label.setStyleSheet("""
+                        QLabel {
+                            border-radius: 8px;
+                            background: transparent;
+                        }
+                    """)
                     layout.addWidget(image_label)
                     
             except Exception as e:
@@ -649,15 +762,6 @@ class ChatInterface(QMainWindow):
         self.model_label.setStyleSheet("color: #666; font-style: italic;")
         layout.addWidget(self.model_label, 0, 1)
         
-        # Temperature
-        
-        # Max tokens (placeholder)
-        layout.addWidget(QLabel("Max Tokens:"), 2, 0)
-        self.max_tokens_spin = QSpinBox()
-        self.max_tokens_spin.setRange(1, 32000)
-        self.max_tokens_spin.setValue(2000)
-        layout.addWidget(self.max_tokens_spin, 2, 1)
-        
         parent_layout.addWidget(settings_group)
     
     def create_chat_history(self, parent_layout):
@@ -776,6 +880,26 @@ class ChatInterface(QMainWindow):
         
         controls_layout.addStretch()
         
+        # Enter to send toggle
+        enter_label = QLabel("Enter to send")
+        enter_label.setStyleSheet(f"""
+            QLabel {{
+                color: {ModernTheme.TEXT_SECONDARY};
+                font-size: 12px;
+                background: transparent;
+            }}
+        """)
+        controls_layout.addWidget(enter_label)
+        
+        self.enter_to_send_toggle = ToggleSwitch()
+        self.enter_to_send_toggle.setChecked(False)  # Default: Ctrl+Enter to send
+        self.enter_to_send_toggle.setToolTip("Toggle: Enter to send or Ctrl+Enter to send")
+        self.enter_to_send_toggle.toggled.connect(self.update_placeholder_text)
+        controls_layout.addWidget(self.enter_to_send_toggle)
+        
+        # Add some spacing before Clear button
+        controls_layout.addSpacing(12)
+        
         # Clear button
         clear_btn = QPushButton("Clear")
         clear_btn.setStyleSheet(f"""
@@ -803,6 +927,8 @@ class ChatInterface(QMainWindow):
         # Custom resizable text edit
         self.message_input = ResizableTextEdit()
         self.message_input.installEventFilter(self)
+        self.message_input.text_edit.installEventFilter(self)  # Also filter the inner text edit
+        self.message_input.text_edit.textChanged.connect(self.on_input_changed)  # Update token count as user types
         input_layout.addWidget(self.message_input)
         
         # Send button
@@ -829,6 +955,44 @@ class ChatInterface(QMainWindow):
         input_layout.addWidget(self.send_button)
         
         layout.addLayout(input_layout)
+        
+        # Token usage indicator (bottom right)
+        token_layout = QHBoxLayout()
+        token_layout.setContentsMargins(0, 4, 0, 0)
+        
+        token_layout.addStretch()  # Push everything to the right
+        
+        # Token progress bar
+        from PyQt6.QtWidgets import QProgressBar
+        self.token_progress = QProgressBar()
+        self.token_progress.setFixedSize(100, 6)
+        self.token_progress.setTextVisible(False)
+        self.token_progress.setRange(0, 100)
+        self.token_progress.setValue(0)
+        self.token_progress.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: #E8E8E8;
+                border: none;
+                border-radius: 3px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {ModernTheme.PRIMARY};
+                border-radius: 3px;
+            }}
+        """)
+        token_layout.addWidget(self.token_progress)
+        
+        self.token_label = QLabel("~0")
+        self.token_label.setStyleSheet(f"""
+            QLabel {{
+                color: {ModernTheme.TEXT_SECONDARY};
+                font-size: 11px;
+                background: transparent;
+            }}
+        """)
+        token_layout.addWidget(self.token_label)
+        
+        layout.addLayout(token_layout)
     
     def apply_styles(self):
         """Apply modern styling"""
@@ -909,17 +1073,96 @@ class ChatInterface(QMainWindow):
             }}
         """)
     
+    def update_placeholder_text(self, checked=None):
+        """Update placeholder text based on Enter to send setting"""
+        if self.enter_to_send_toggle.isChecked():
+            self.message_input.text_edit.setPlaceholderText("Type your message here... (Enter to send, Shift+Enter for new line)")
+        else:
+            self.message_input.text_edit.setPlaceholderText("Type your message here... (Ctrl+Enter to send)")
+    
     def eventFilter(self, obj, event):
         """Handle key events for message input"""
-        if obj == self.message_input and event.type() == event.Type.KeyPress:
-            if event.key() == Qt.Key.Key_Return and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
-                self.send_message()
-                return True
-        elif obj == self.message_input.text_edit and event.type() == event.Type.KeyPress:
+        if obj == self.message_input.text_edit and event.type() == event.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Return:
+                # Check if Enter to send is enabled
+                if self.enter_to_send_toggle.isChecked():
+                    # Enter to send mode
+                    if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+                        # Shift+Enter: insert new line (let it pass through)
+                        return False
+                    elif event.modifiers() == Qt.KeyboardModifier.NoModifier:
+                        # Just Enter: send message
+                        self.send_message()
+                        return True
+                else:
+                    # Ctrl+Enter to send mode
+                    if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+                        self.send_message()
+                        return True
+        elif obj == self.message_input and event.type() == event.Type.KeyPress:
+            # Fallback for the container
             if event.key() == Qt.Key.Key_Return and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
                 self.send_message()
                 return True
         return super().eventFilter(obj, event)
+    
+    def estimate_tokens(self, text: str) -> int:
+        """Estimate token count for text (rough approximation: ~4 chars per token)"""
+        return len(text) // 4 + 1
+    
+    def update_token_usage(self):
+        """Update the token usage display"""
+        # Use a reasonable default context size (most models support at least 4k-8k)
+        max_tokens = 8192
+        
+        if not self.current_session:
+            self.token_label.setText("~0")
+            self.token_progress.setValue(0)
+            self.token_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-size: 11px; background: transparent;")
+            self.token_progress.setStyleSheet(f"""
+                QProgressBar {{ background-color: #E8E8E8; border: none; border-radius: 3px; }}
+                QProgressBar::chunk {{ background-color: {ModernTheme.PRIMARY}; border-radius: 3px; }}
+            """)
+            return
+        
+        # Calculate total tokens from all messages
+        total_tokens = 0
+        for msg in self.current_session.messages:
+            total_tokens += self.estimate_tokens(msg.content)
+        
+        # Add current input text
+        current_input = self.message_input.toPlainText()
+        if current_input:
+            total_tokens += self.estimate_tokens(current_input)
+        
+        # Calculate percentage
+        percentage = min(100, int((total_tokens / max_tokens) * 100))
+        
+        # Update label with compact format
+        self.token_label.setText(f"~{total_tokens:,}")
+        
+        # Update progress bar
+        self.token_progress.setValue(percentage)
+        
+        # Change color based on usage
+        if percentage >= 90:
+            color = "#F44336"  # Red - danger
+            self.token_label.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold; background: transparent;")
+        elif percentage >= 75:
+            color = "#FF9800"  # Orange - warning
+            self.token_label.setStyleSheet(f"color: {color}; font-size: 11px; background: transparent;")
+        else:
+            color = ModernTheme.PRIMARY  # Teal - normal
+            self.token_label.setStyleSheet(f"color: {ModernTheme.TEXT_SECONDARY}; font-size: 11px; background: transparent;")
+        
+        self.token_progress.setStyleSheet(f"""
+            QProgressBar {{ background-color: #E8E8E8; border: none; border-radius: 3px; }}
+            QProgressBar::chunk {{ background-color: {color}; border-radius: 3px; }}
+        """)
+    
+    def on_input_changed(self):
+        """Handle input text changes to update token count in real-time"""
+        self.update_token_usage()
     
     def create_new_session(self):
         """Create a new chat session"""
@@ -934,6 +1177,7 @@ class ChatInterface(QMainWindow):
         self.current_session = session
         self.clear_chat_display()
         self.update_sessions_list()
+        self.update_token_usage()  # Reset token display
         pass  # Session created successfully
         
         logger.info(f"Created new chat session: {session_id}")
@@ -972,6 +1216,7 @@ class ChatInterface(QMainWindow):
                 self.add_message_to_display(message)
             
             self.update_sessions_list()  # Refresh highlighting
+            self.update_token_usage()  # Update token display
             pass  # Session loaded successfully
     
     def delete_session(self):
@@ -1130,6 +1375,9 @@ class ChatInterface(QMainWindow):
         self.message_input.clear()
         self.attached_images = []
         
+        # Update token usage
+        self.update_token_usage()
+        
         # Update session title if this is the first message
         if len(self.current_session.messages) == 1:
             # Use first few words as title
@@ -1200,17 +1448,81 @@ class ChatInterface(QMainWindow):
             
             messages.append(ai_message)
         
-        # Start worker thread
+        # Start worker thread with streaming enabled
         self.current_worker = ChatWorker(
             self.ai_client,
             current_model,
             messages,
-            self.current_session.session_id
+            self.current_session.session_id,
+            stream=True  # Enable streaming
         )
         
+        # Initialize streaming state
+        self.streaming_content = ""
+        self.streaming_message_widget = None
+        
+        # Connect signals
+        self.current_worker.chunk_received.connect(self.on_chunk_received)
+        self.current_worker.stream_finished.connect(self.on_stream_finished)
         self.current_worker.response_received.connect(self.on_response_received)
         self.current_worker.error_occurred.connect(self.on_error_occurred)
         self.current_worker.start()
+    
+    def on_chunk_received(self, chunk: str, session_id: str):
+        """Handle streaming chunk received"""
+        if session_id != self.current_session.session_id:
+            return
+        
+        # Hide typing animation on first chunk
+        if not self.streaming_content:
+            self.typing_animation.stop_animation()
+            
+            # Create a streaming message widget
+            streaming_message = ChatMessage(role="assistant", content="")
+            self.streaming_message_widget = MessageWidget(streaming_message)
+            self.chat_layout.insertWidget(self.chat_layout.count() - 1, self.streaming_message_widget)
+        
+        # Accumulate content
+        self.streaming_content += chunk
+        
+        # Update the message widget content
+        if self.streaming_message_widget:
+            self.streaming_message_widget.content_label.setText(self.streaming_content)
+            
+        # Scroll to bottom
+        QTimer.singleShot(10, self.scroll_to_bottom)
+    
+    def on_stream_finished(self, full_response: str, session_id: str):
+        """Handle streaming completion"""
+        if session_id != self.current_session.session_id:
+            return
+        
+        # Stop typing animation (in case no chunks were received)
+        self.typing_animation.stop_animation()
+        
+        # Create assistant message with full content
+        assistant_message = ChatMessage(
+            role="assistant",
+            content=full_response
+        )
+        
+        # Add to session
+        self.current_session.messages.append(assistant_message)
+        
+        # Update token usage
+        self.update_token_usage()
+        
+        # Re-enable controls
+        self.send_button.setEnabled(True)
+        
+        # Update sessions list
+        self.update_sessions_list()
+        
+        # Reset streaming state
+        self.streaming_content = ""
+        self.streaming_message_widget = None
+        
+        logger.info(f"Completed streaming response for session {session_id}")
     
     def on_response_received(self, response: str, session_id: str):
         """Handle AI response"""
@@ -1231,6 +1543,9 @@ class ChatInterface(QMainWindow):
         
         # Display message
         self.add_message_to_display(assistant_message)
+        
+        # Update token usage
+        self.update_token_usage()
         
         # Re-enable controls
         self.send_button.setEnabled(True)
@@ -1256,6 +1571,7 @@ class ChatInterface(QMainWindow):
         if self.current_session:
             self.current_session.messages.clear()
             self.clear_chat_display()
+            self.update_token_usage()
             pass  # Chat cleared successfully
     
     def update_client(self, client):
