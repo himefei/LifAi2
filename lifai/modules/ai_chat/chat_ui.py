@@ -1437,14 +1437,35 @@ class ChatInterface(QMainWindow):
         
         # Add conversation history
         for msg in self.current_session.messages:
-            ai_message = {
-                "role": msg.role,
-                "content": msg.content
-            }
-            
-            # Add images if present (for vision models)
-            if msg.images and hasattr(self.ai_client, 'supports_vision'):
-                ai_message["images"] = msg.images
+            # Build message with proper image format for vision models
+            if msg.images:
+                # OpenAI-compatible multimodal format: content is an array
+                content_parts = [{"type": "text", "text": msg.content}]
+                
+                for img_data in msg.images:
+                    # Format image for API - need data URL format
+                    if img_data.startswith('data:'):
+                        # Already a data URL
+                        image_url = img_data
+                    else:
+                        # Assume it's base64 encoded, add data URL prefix
+                        image_url = f"data:image/jpeg;base64,{img_data}"
+                    
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": image_url}
+                    })
+                
+                ai_message = {
+                    "role": msg.role,
+                    "content": content_parts
+                }
+            else:
+                # Text-only message
+                ai_message = {
+                    "role": msg.role,
+                    "content": msg.content
+                }
             
             messages.append(ai_message)
         
